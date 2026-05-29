@@ -43,12 +43,12 @@ func TestAuthRoutesAreRegistered(t *testing.T) {
 		loginFn:         func(_ context.Context, _ auth.LoginRequest) (*auth.LoginResponse, error) { return &auth.LoginResponse{}, nil },
 		registerFn:      func(_ context.Context, _ auth.RegisterRequest) (*auth.RegisterResponse, error) { return &auth.RegisterResponse{}, nil },
 		validateTokenFn: func(_ context.Context, _ string) (*auth.ValidateResponse, error) { return &auth.ValidateResponse{}, nil },
-		generateKeyFn:   func(_ context.Context, _ uint) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{}, nil },
-		listKeysFn:      func(_ context.Context, _ uint) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{}, nil },
-		getKeyStatusFn:  func(_ context.Context, _ uint, _ string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{}, nil },
+		generateKeyFn:  func(_ context.Context) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{}, nil },
+		listKeysFn:     func(_ context.Context) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{}, nil },
+		getKeyStatusFn: func(_ context.Context, _ string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{}, nil },
 	})
 	auth.RegisterPublicRoutes(group, handler)
-	auth.RegisterProtectedRoutes(group, handler)
+	auth.RegisterAdminKeyRoutes(group, handler)
 	auth.RegisterValidationRoute(group, handler)
 
 	got := map[string]bool{}

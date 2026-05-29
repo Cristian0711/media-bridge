@@ -23,9 +23,9 @@ type Service interface {
 	Login(ctx context.Context, req LoginRequest) (*LoginResponse, error)
 	Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error)
 	ValidateToken(ctx context.Context, token string) (*ValidateResponse, error)
-	GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error)
-	ListKeys(ctx context.Context, userID uint) (*ListKeysResponse, error)
-	GetKeyStatus(ctx context.Context, userID uint, value string) (*KeyStatusResponse, error)
+	GenerateKey(ctx context.Context) (*GenerateKeyResponse, error)
+	ListKeys(ctx context.Context) (*ListKeysResponse, error)
+	GetKeyStatus(ctx context.Context, value string) (*KeyStatusResponse, error)
 }
 
 type service struct {
@@ -134,10 +134,7 @@ func (s *service) ValidateToken(ctx context.Context, token string) (*ValidateRes
 	}, nil
 }
 
-func (s *service) GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error) {
-	if err := s.requireAdmin(ctx, userID); err != nil {
-		return nil, err
-	}
+func (s *service) GenerateKey(ctx context.Context) (*GenerateKeyResponse, error) {
 	key, err := s.repo.CreateKey(ctx, uuid.New().String())
 	if err != nil {
 		return nil, err
@@ -145,10 +142,7 @@ func (s *service) GenerateKey(ctx context.Context, userID uint) (*GenerateKeyRes
 	return &GenerateKeyResponse{Key: key.Value}, nil
 }
 
-func (s *service) ListKeys(ctx context.Context, userID uint) (*ListKeysResponse, error) {
-	if err := s.requireAdmin(ctx, userID); err != nil {
-		return nil, err
-	}
+func (s *service) ListKeys(ctx context.Context) (*ListKeysResponse, error) {
 	keys, err := s.repo.ListKeys(ctx)
 	if err != nil {
 		return nil, err
@@ -160,10 +154,7 @@ func (s *service) ListKeys(ctx context.Context, userID uint) (*ListKeysResponse,
 	return &ListKeysResponse{Keys: items}, nil
 }
 
-func (s *service) GetKeyStatus(ctx context.Context, userID uint, value string) (*KeyStatusResponse, error) {
-	if err := s.requireAdmin(ctx, userID); err != nil {
-		return nil, err
-	}
+func (s *service) GetKeyStatus(ctx context.Context, value string) (*KeyStatusResponse, error) {
 	key, err := s.repo.FindKey(ctx, value)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -176,14 +167,4 @@ func (s *service) GetKeyStatus(ctx context.Context, userID uint, value string) (
 		IsActive: key.IsActive,
 		Status:   inviteKeyStatus(key.IsActive),
 	}, nil
-}
-
-func toInviteKeyResponse(key Key) InviteKeyResponse {
-	return InviteKeyResponse{
-		Value:     key.Value,
-		IsActive:  key.IsActive,
-		Status:    inviteKeyStatus(key.IsActive),
-		UsedAt:    key.UsedAt,
-		CreatedAt: key.CreatedAt,
-	}
 }

@@ -29,12 +29,11 @@ func (h *Handler) writeKeyServiceError(c *gin.Context, err error) {
 }
 
 func (h *Handler) GenerateKey(c *gin.Context) {
-	id, ok := userIDFromContext(c)
-	if !ok {
+	if _, ok := userIDFromContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	resp, err := h.svc.GenerateKey(c.Request.Context(), id)
+	resp, err := h.svc.GenerateKey(c.Request.Context())
 	if err != nil {
 		h.writeKeyServiceError(c, err)
 		return
@@ -43,12 +42,11 @@ func (h *Handler) GenerateKey(c *gin.Context) {
 }
 
 func (h *Handler) ListKeys(c *gin.Context) {
-	id, ok := userIDFromContext(c)
-	if !ok {
+	if _, ok := userIDFromContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	resp, err := h.svc.ListKeys(c.Request.Context(), id)
+	resp, err := h.svc.ListKeys(c.Request.Context())
 	if err != nil {
 		h.writeKeyServiceError(c, err)
 		return
@@ -57,12 +55,11 @@ func (h *Handler) ListKeys(c *gin.Context) {
 }
 
 func (h *Handler) GetKeyStatus(c *gin.Context) {
-	id, ok := userIDFromContext(c)
-	if !ok {
+	if _, ok := userIDFromContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	resp, err := h.svc.GetKeyStatus(c.Request.Context(), id, c.Param("value"))
+	resp, err := h.svc.GetKeyStatus(c.Request.Context(), c.Param("value"))
 	if err != nil {
 		h.writeKeyServiceError(c, err)
 		return

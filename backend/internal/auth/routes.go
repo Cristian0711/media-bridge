@@ -8,8 +8,9 @@ func RegisterPublicRoutes(r *gin.RouterGroup, h *Handler) {
 	g.POST("/register", h.Register)
 }
 
-func RegisterProtectedRoutes(r *gin.RouterGroup, h *Handler) {
+func RegisterAdminKeyRoutes(r *gin.RouterGroup, h *Handler) {
 	keys := r.Group("/keys")
+	keys.Use(AdminMiddleware())
 	keys.GET("", h.ListKeys)
 	keys.POST("/generate", h.GenerateKey)
 	keys.GET("/:value/validate", h.GetKeyStatus)

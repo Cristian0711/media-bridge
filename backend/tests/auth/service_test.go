@@ -259,38 +259,17 @@ func TestGenerateKeyAndGetStatus(t *testing.T) {
 			},
 			disableKeyFn: func(context.Context, string) error { return nil },
 		},
-		&usersSvcStub{
-			findByIDFn: func(context.Context, uint) (*users.User, error) {
-				return &users.User{ID: 1, Role: users.RoleAdmin}, nil
-			},
-		},
+		&usersSvcStub{},
 		auth.NewJWTManager("secret"),
 	)
 
-	keyResp, err := svc.GenerateKey(context.Background(), 1)
+	keyResp, err := svc.GenerateKey(context.Background())
 	if err != nil || keyResp.Key == "" {
 		t.Fatalf("expected generated key, got resp=%+v err=%v", keyResp, err)
 	}
-	_, err = svc.GetKeyStatus(context.Background(), 1, "missing")
+	_, err = svc.GetKeyStatus(context.Background(), "missing")
 	if !errors.Is(err, auth.ErrKeyInvalid) {
 		t.Fatalf("expected ErrKeyInvalid, got %v", err)
-	}
-}
-
-func TestListKeysRequiresAdmin(t *testing.T) {
-	t.Parallel()
-	svc := auth.NewService(
-		&authRepoStub{},
-		&usersSvcStub{
-			findByIDFn: func(context.Context, uint) (*users.User, error) {
-				return &users.User{ID: 1, Role: users.RoleUser}, nil
-			},
-		},
-		auth.NewJWTManager("secret"),
-	)
-	_, err := svc.ListKeys(context.Background(), 1)
-	if !errors.Is(err, auth.ErrForbidden) {
-		t.Fatalf("expected ErrForbidden, got %v", err)
 	}
 }
 
@@ -305,14 +284,10 @@ func TestListKeysReturnsAll(t *testing.T) {
 				}, nil
 			},
 		},
-		&usersSvcStub{
-			findByIDFn: func(context.Context, uint) (*users.User, error) {
-				return &users.User{ID: 1, Role: users.RoleAdmin}, nil
-			},
-		},
+		&usersSvcStub{},
 		auth.NewJWTManager("secret"),
 	)
-	resp, err := svc.ListKeys(context.Background(), 1)
+	resp, err := svc.ListKeys(context.Background())
 	if err != nil {
 		t.Fatalf("list keys: %v", err)
 	}

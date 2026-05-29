@@ -17,9 +17,9 @@ type authSvcStub struct {
 	loginFn         func(ctx context.Context, req auth.LoginRequest) (*auth.LoginResponse, error)
 	registerFn      func(ctx context.Context, req auth.RegisterRequest) (*auth.RegisterResponse, error)
 	validateTokenFn func(ctx context.Context, token string) (*auth.ValidateResponse, error)
-	generateKeyFn   func(ctx context.Context, userID uint) (*auth.GenerateKeyResponse, error)
-	listKeysFn      func(ctx context.Context, userID uint) (*auth.ListKeysResponse, error)
-	getKeyStatusFn  func(ctx context.Context, userID uint, value string) (*auth.KeyStatusResponse, error)
+	generateKeyFn  func(ctx context.Context) (*auth.GenerateKeyResponse, error)
+	listKeysFn     func(ctx context.Context) (*auth.ListKeysResponse, error)
+	getKeyStatusFn func(ctx context.Context, value string) (*auth.KeyStatusResponse, error)
 }
 
 func (s *authSvcStub) Login(ctx context.Context, req auth.LoginRequest) (*auth.LoginResponse, error) {
@@ -31,14 +31,14 @@ func (s *authSvcStub) Register(ctx context.Context, req auth.RegisterRequest) (*
 func (s *authSvcStub) ValidateToken(ctx context.Context, token string) (*auth.ValidateResponse, error) {
 	return s.validateTokenFn(ctx, token)
 }
-func (s *authSvcStub) GenerateKey(ctx context.Context, userID uint) (*auth.GenerateKeyResponse, error) {
-	return s.generateKeyFn(ctx, userID)
+func (s *authSvcStub) GenerateKey(ctx context.Context) (*auth.GenerateKeyResponse, error) {
+	return s.generateKeyFn(ctx)
 }
-func (s *authSvcStub) ListKeys(ctx context.Context, userID uint) (*auth.ListKeysResponse, error) {
-	return s.listKeysFn(ctx, userID)
+func (s *authSvcStub) ListKeys(ctx context.Context) (*auth.ListKeysResponse, error) {
+	return s.listKeysFn(ctx)
 }
-func (s *authSvcStub) GetKeyStatus(ctx context.Context, userID uint, value string) (*auth.KeyStatusResponse, error) {
-	return s.getKeyStatusFn(ctx, userID, value)
+func (s *authSvcStub) GetKeyStatus(ctx context.Context, value string) (*auth.KeyStatusResponse, error) {
+	return s.getKeyStatusFn(ctx, value)
 }
 
 func TestRegisterHandlerStatusCodes(t *testing.T) {
@@ -84,9 +84,9 @@ func TestOtherAuthHandlers(t *testing.T) {
 	h := auth.NewHandler(&authSvcStub{
 		loginFn:         func(context.Context, auth.LoginRequest) (*auth.LoginResponse, error) { return &auth.LoginResponse{Token: "t"}, nil },
 		validateTokenFn: func(context.Context, string) (*auth.ValidateResponse, error) { return &auth.ValidateResponse{Valid: true, UserID: 1}, nil },
-		generateKeyFn:   func(context.Context, uint) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{Key: "k"}, nil },
-		listKeysFn:      func(context.Context, uint) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{Keys: []auth.InviteKeyResponse{{Value: "k", Status: "available"}}}, nil },
-		getKeyStatusFn:  func(context.Context, uint, string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{Value: "k", IsActive: true, Status: "available"}, nil },
+		generateKeyFn:  func(context.Context) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{Key: "k"}, nil },
+		listKeysFn:     func(context.Context) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{Keys: []auth.InviteKeyResponse{{Value: "k", Status: "available"}}}, nil },
+		getKeyStatusFn: func(context.Context, string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{Value: "k", IsActive: true, Status: "available"}, nil },
 		registerFn:      func(context.Context, auth.RegisterRequest) (*auth.RegisterResponse, error) { return &auth.RegisterResponse{ID: 1, Username: "a"}, nil },
 	})
 
@@ -97,9 +97,10 @@ func TestOtherAuthHandlers(t *testing.T) {
 	protected.Use(func(c *gin.Context) {
 		c.Set("user_id", uint(1))
 		c.Set("username", "alice")
+		c.Request.Header.Set("X-User-Role", "admin")
 		c.Next()
 	})
-	auth.RegisterProtectedRoutes(protected, h)
+	auth.RegisterAdminKeyRoutes(protected, h)
 	auth.RegisterValidationRoute(g, h)
 
 	loginBody, _ := json.Marshal(auth.LoginRequest{Username: "alice", Password: "password"})

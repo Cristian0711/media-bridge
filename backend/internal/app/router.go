@@ -33,7 +33,7 @@ func newRouter(
 
 	protected := r.Group("/api/v1")
 	protected.Use(authMiddleware())
-	auth.RegisterProtectedRoutes(protected, authH)
+	auth.RegisterAdminKeyRoutes(protected, authH)
 	users.RegisterRoutes(protected, userH)
 	qbittorrent.RegisterRoutes(protected, qbitH)
 	indexer.RegisterRoutes(protected, indexerH)
