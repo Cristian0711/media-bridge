@@ -19,3 +19,12 @@ func TestParseIDSkipsNonDigits(t *testing.T) {
 		t.Fatalf("expected 1234, got %d", got)
 	}
 }
+
+func TestParseIDFromDownloadURL(t *testing.T) {
+	t.Parallel()
+
+	got := parseID("https://blutopia.cc/torrent/download/127673.d5c080356451401b6d009f9007835eb0")
+	if got != 127673 {
+		t.Fatalf("expected 127673, got %d", got)
+	}
+}

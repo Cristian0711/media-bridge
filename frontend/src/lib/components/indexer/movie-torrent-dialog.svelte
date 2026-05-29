@@ -166,7 +166,7 @@
     <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-3">
       {#if filteredMovies.length > 0}
         <div class="space-y-2">
-          {#each filteredMovies as movie (movie.id)}
+          {#each filteredMovies as movie (`${movie.indexer_name}:${movie.id}:${movie.download_link}`)}
             <div class="min-w-0 overflow-hidden rounded-lg border border-border/40 bg-card/50 p-2.5">
               <div class="mb-1.5 flex min-w-0 items-start justify-between gap-2">
                 <h3 class="min-w-0 flex-1 break-all text-xs font-semibold">{movie.name}</h3>

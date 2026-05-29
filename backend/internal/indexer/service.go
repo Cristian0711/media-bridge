@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -236,9 +237,26 @@ func (s *Service) getIndexersToSearch(ids []string) []Provider {
 }
 
 func parseID(id string) int64 {
+	s := strings.TrimSpace(id)
+	if s == "" {
+		return 0
+	}
+	// UNIT3D download URLs: .../torrent/download/{id}.{token}
+	if i := strings.LastIndex(s, "/download/"); i >= 0 {
+		tail := s[i+len("/download/"):]
+		if dot := strings.IndexByte(tail, '.'); dot > 0 {
+			tail = tail[:dot]
+		}
+		if n, err := strconv.ParseInt(tail, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+		return n
+	}
 	var n int64
-	for i, c := range id {
-		if i >= 10 {
+	for i, c := range s {
+		if i >= 32 {
 			break
 		}
 		if c < '0' || c > '9' {

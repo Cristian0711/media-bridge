@@ -73,7 +73,7 @@ func NewClient(cfg Config) *Client {
 }
 
 // FilterFreeleech returns freeleech torrents for the given IMDb id (movies and TV mixed).
-func (c *Client) FilterFreeleech(ctx context.Context, imdbID string) ([]torrentAttributes, error) {
+func (c *Client) FilterFreeleech(ctx context.Context, imdbID string) ([]torrentResource, error) {
 	numericID, err := normalizeIMDbNumeric(imdbID)
 	if err != nil {
 		return nil, err
@@ -117,12 +117,12 @@ func (c *Client) FilterFreeleech(ctx context.Context, imdbID string) ([]torrentA
 		return nil, fmt.Errorf("decode blutopia response: %w", err)
 	}
 
-	out := make([]torrentAttributes, 0, len(parsed.Data))
+	out := make([]torrentResource, 0, len(parsed.Data))
 	for _, item := range parsed.Data {
 		if !isFreeleech(item.Attributes.Freeleech) {
 			continue
 		}
-		out = append(out, item.Attributes)
+		out = append(out, item)
 	}
 	return out, nil
 }

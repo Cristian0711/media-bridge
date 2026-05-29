@@ -254,7 +254,7 @@
     <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-3">
       {#if filteredShows().length > 0}
         <div class="space-y-2">
-          {#each filteredShows() as show (show.id)}
+          {#each filteredShows() as show (`${show.indexer_name}:${show.id}:${show.download_link}`)}
             {@render torrentRow(show)}
           {/each}
         </div>
@@ -263,7 +263,7 @@
       {#if unparsedShows?.length > 0}
         <p class="my-3 text-center text-xs text-muted-foreground">Unparsed results</p>
         <div class="space-y-2">
-          {#each unparsedShows as show (show.id)}
+          {#each unparsedShows as show (`${show.indexer_name}:${show.id}:${show.download_link}`)}
             {@render torrentRow(show, true)}
           {/each}
         </div>

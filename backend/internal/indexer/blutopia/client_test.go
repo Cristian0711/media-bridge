@@ -83,6 +83,9 @@ func TestFilterFreeleechMoviesOnly(t *testing.T) {
 	if !movies[0].Freeleech {
 		t.Fatal("expected freeleech")
 	}
+	if movies[0].ID != "1" {
+		t.Fatalf("expected torrent id 1, got %q", movies[0].ID)
+	}
 }
 
 func TestNormalizeIMDbNumeric(t *testing.T) {

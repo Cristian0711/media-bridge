@@ -46,42 +46,44 @@ func (p *Provider) DownloadTorrent(ctx context.Context, downloadURL string) (str
 	return p.client.DownloadTorrent(ctx, downloadURL)
 }
 
-func filterByCategory(items []torrentAttributes, match func(string, int) bool) []torrentAttributes {
-	out := make([]torrentAttributes, 0, len(items))
+func filterByCategory(items []torrentResource, match func(string, int) bool) []torrentResource {
+	out := make([]torrentResource, 0, len(items))
 	for _, item := range items {
-		if match(item.Category, item.CategoryID) {
+		attrs := item.Attributes
+		if match(attrs.Category, attrs.CategoryID) {
 			out = append(out, item)
 		}
 	}
 	return out
 }
 
-func (p *Provider) toIndexerItems(items []torrentAttributes) []idx.IndexerItem {
+func (p *Provider) toIndexerItems(items []torrentResource) []idx.IndexerItem {
 	result := make([]idx.IndexerItem, 0, len(items))
 	for _, item := range items {
-		category := strings.TrimSpace(item.Category)
-		if item.Type != "" {
-			category = strings.TrimSpace(item.Category + " / " + item.Type)
+		attrs := item.Attributes
+		category := strings.TrimSpace(attrs.Category)
+		if attrs.Type != "" {
+			category = strings.TrimSpace(attrs.Category + " / " + attrs.Type)
 		}
-		if item.Resolution != "" {
+		if attrs.Resolution != "" {
 			if category != "" {
-				category += " · " + item.Resolution
+				category += " · " + attrs.Resolution
 			} else {
-				category = item.Resolution
+				category = attrs.Resolution
 			}
 		}
 		result = append(result, idx.IndexerItem{
-			ID:           item.DownloadLink,
-			Name:         item.Name,
-			ImdbID:       imdbFromAttrs(item),
-			Size:         item.Size,
-			Seeders:      item.Seeders,
-			Leechers:     item.Leechers,
-			Downloads:    item.TimesCompleted,
-			DownloadLink: item.DownloadLink,
+			ID:           item.ID,
+			Name:         attrs.Name,
+			ImdbID:       imdbFromAttrs(attrs),
+			Size:         attrs.Size,
+			Seeders:      attrs.Seeders,
+			Leechers:     attrs.Leechers,
+			Downloads:    attrs.TimesCompleted,
+			DownloadLink: attrs.DownloadLink,
 			Freeleech:    true,
 			Category:     category,
-			UploadDate:   item.CreatedAt,
+			UploadDate:   attrs.CreatedAt,
 			IndexerName:  p.Name,
 		})
 	}
