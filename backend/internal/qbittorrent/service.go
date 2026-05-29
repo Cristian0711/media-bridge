@@ -82,7 +82,7 @@ func (s *service) AddTorrent(ctx context.Context, file []byte, savePath, torrent
 		}
 	}
 
-	if err := s.client.AddTorrentFromMemoryCtx(ctx, file, options); err != nil {
+	if _, err := s.client.AddTorrentFromMemoryCtx(ctx, file, options); err != nil {
 		return nil, err
 	}
 
