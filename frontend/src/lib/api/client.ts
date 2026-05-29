@@ -37,6 +37,7 @@ export async function callApi<T>(path: string, options: CallApiOptions = {}): Pr
   const res = await fetch(`/api/v1${path}`, {
     ...init,
     headers,
+    credentials: 'include',
   });
 
   let body: unknown = null;

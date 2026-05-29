@@ -51,6 +51,7 @@ export function connectAppEvents(): AppSseConnection {
     try {
       const res = await fetch('/api/v1/events', {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+        credentials: 'include',
         signal: abort.signal,
       });
 

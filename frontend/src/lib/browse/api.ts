@@ -28,7 +28,7 @@ export type BrowseCatalog = {
 async function authFetch(path: string): Promise<Response> {
   const token = getToken();
   if (!token) throw new ApiError(401, 'Not authenticated');
-  return fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+  return fetch(path, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
 }
 
 export async function fetchBrowseServices(): Promise<BrowseService[]> {

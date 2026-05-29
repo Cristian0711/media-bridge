@@ -8,7 +8,8 @@
   import BottomChrome from '$lib/navigation/bottom-chrome.svelte';
   import { TABS } from '$lib/navigation/tabs';
   import { clearSearchInputFocused } from '$lib/navigation/search-ui.svelte';
-  import { isAuthenticated } from '$lib/auth/session';
+  import { validateToken } from '$lib/auth/api';
+  import { clearToken, isAuthenticated, syncTokenFromCookie } from '$lib/auth/session';
   import { connectAppEvents } from '$lib/sse/client';
   import { sseConnectionStatus } from '$lib/sse/connection-status';
   import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
@@ -22,6 +23,7 @@
   const isAuthPage = $derived(publicPaths.includes(page.url.pathname));
 
   onMount(() => {
+    syncTokenFromCookie();
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -42,7 +44,11 @@
     }
 
     if (isAuthenticated() && publicPaths.includes(path)) {
-      goto('/');
+      void validateToken()
+        .then((res) => {
+          if (res.valid) goto('/');
+        })
+        .catch(() => clearToken());
     }
   });
 

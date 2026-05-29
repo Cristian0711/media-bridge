@@ -45,6 +45,7 @@ export function connectRequestTorrentStream(
     try {
       const res = await fetch(`/api/v1/requests/${requestId}/torrent/events`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+        credentials: 'include',
         signal: abort.signal,
       });
 

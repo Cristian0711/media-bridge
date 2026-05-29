@@ -34,7 +34,10 @@ async function fetchExternalIdsRaw(
   }
   headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(`/api/v1/search/external-ids?${params.toString()}`, { headers });
+  const res = await fetch(`/api/v1/search/external-ids?${params.toString()}`, {
+    headers,
+    credentials: 'include',
+  });
   const text = await res.text();
   let body: unknown = null;
   if (text) {
@@ -121,7 +124,7 @@ export async function searchMedia(query: string, page = 1): Promise<SearchPage> 
   }
   headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(`/api/v1/search?${params.toString()}`, { headers });
+  const res = await fetch(`/api/v1/search?${params.toString()}`, { headers, credentials: 'include' });
   const text = await res.text();
   let body: unknown = null;
   if (text) {

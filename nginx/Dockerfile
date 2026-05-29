@@ -24,6 +24,7 @@ RUN luarocks install lua-resty-openssl
 RUN luarocks install lua-resty-uuid
 
 COPY --from=frontend-build /app/build /usr/share/nginx/html
+COPY nginx/lua/ /etc/nginx/lua/
 COPY nginx/nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
 EXPOSE 80
