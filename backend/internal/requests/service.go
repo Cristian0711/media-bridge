@@ -102,7 +102,15 @@ func (s *service) RequestMovieDownload(ctx context.Context, req MovieDownloadReq
 		Indexer:     req.Indexer,
 		Quality:     req.Quality,
 	}
-	_, created, err := s.repo.CreateMovieDownloadIfAbsent(ctx, entry, req.IMDBID, req.TMDBID, req.Quality)
+	_, created, err := s.repo.CreateMovieDownloadIfAbsent(ctx, entry, req.IMDBID, req.TMDBID, req.Quality, func(tx *gorm.DB, e *Request) error {
+		return s.processor.EnqueueInGormTx(ctx, tx, QueuePayload{
+			RequestEntryID: e.ID,
+			RequestID:      requestID,
+			Type:           e.Type,
+			UserID:         userID,
+			Username:       username,
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -111,15 +119,6 @@ func (s *service) RequestMovieDownload(ctx context.Context, req MovieDownloadReq
 			Status:  "accepted",
 			Message: "movie download already in progress",
 		}, nil
-	}
-	if err := s.processor.Enqueue(ctx, QueuePayload{
-		RequestEntryID: entry.ID,
-		RequestID:      requestID,
-		Type:           entry.Type,
-		UserID:         userID,
-		Username:       username,
-	}); err != nil {
-		return nil, err
 	}
 	return &RequestAck{Status: "accepted", Message: "movie download request queued for processing"}, nil
 }
@@ -167,7 +166,15 @@ func (s *service) RequestShowDownload(ctx context.Context, req ShowDownloadReque
 		Indexer:     req.Indexer,
 		Quality:     req.Quality,
 	}
-	_, created, err := s.repo.CreateShowDownloadIfAbsent(ctx, entry, req.IMDBID, req.TVDBID, req.Quality, req.Season, req.Episode)
+	_, created, err := s.repo.CreateShowDownloadIfAbsent(ctx, entry, req.IMDBID, req.TVDBID, req.Quality, req.Season, req.Episode, func(tx *gorm.DB, e *Request) error {
+		return s.processor.EnqueueInGormTx(ctx, tx, QueuePayload{
+			RequestEntryID: e.ID,
+			RequestID:      requestID,
+			Type:           e.Type,
+			UserID:         userID,
+			Username:       username,
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -176,15 +183,6 @@ func (s *service) RequestShowDownload(ctx context.Context, req ShowDownloadReque
 			Status:  "accepted",
 			Message: "show download already in progress",
 		}, nil
-	}
-	if err := s.processor.Enqueue(ctx, QueuePayload{
-		RequestEntryID: entry.ID,
-		RequestID:      requestID,
-		Type:           entry.Type,
-		UserID:         userID,
-		Username:       username,
-	}); err != nil {
-		return nil, err
 	}
 	return &RequestAck{Status: "accepted", Message: "show download request queued for processing"}, nil
 }
@@ -198,18 +196,6 @@ func (s *service) RequestMovieRemove(ctx context.Context, req MovieRemoveRequest
 		return nil, fmt.Errorf("media %d is not a movie", req.MediaID)
 	}
 	movie := mediaRow.Movie
-
-	// Dedup: if a remove for this media is already pending or being processed,
-	// don't enqueue a second one — the queue would churn and the second worker
-	// would race the first to delete the same files.
-	if active, err := s.repo.FindActiveRemoveByMediaID(ctx, req.MediaID, "movie_remove"); err != nil {
-		return nil, err
-	} else if active != nil {
-		return &RequestAck{
-			Status:  "accepted",
-			Message: "movie remove already in progress",
-		}, nil
-	}
 
 	entry := &Request{
 		Type:        "movie_remove",
@@ -227,17 +213,23 @@ func (s *service) RequestMovieRemove(ctx context.Context, req MovieRemoveRequest
 		Indexer:     mediaRow.Indexer,
 		Quality:     mediaRow.Quality,
 	}
-	if err := s.repo.Create(ctx, entry); err != nil {
+	_, created, err := s.repo.CreateRemoveIfAbsent(ctx, entry, req.MediaID, "movie_remove", func(tx *gorm.DB, e *Request) error {
+		return s.processor.EnqueueInGormTx(ctx, tx, QueuePayload{
+			RequestEntryID: e.ID,
+			RequestID:      requestID,
+			Type:           e.Type,
+			UserID:         userID,
+			Username:       username,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := s.processor.Enqueue(ctx, QueuePayload{
-		RequestEntryID: entry.ID,
-		RequestID:      requestID,
-		Type:           entry.Type,
-		UserID:         userID,
-		Username:       username,
-	}); err != nil {
-		return nil, err
+	if !created {
+		return &RequestAck{
+			Status:  "accepted",
+			Message: "movie remove already in progress",
+		}, nil
 	}
 	return &RequestAck{Status: "accepted", Message: "movie remove request queued for processing"}, nil
 }
@@ -252,15 +244,6 @@ func (s *service) RequestShowRemove(ctx context.Context, req ShowRemoveRequestBo
 	}
 	showEntry := mediaRow.ShowEntry
 	show := showEntry.Show
-
-	if active, err := s.repo.FindActiveRemoveByMediaID(ctx, req.MediaID, "show_remove"); err != nil {
-		return nil, err
-	} else if active != nil {
-		return &RequestAck{
-			Status:  "accepted",
-			Message: "show remove already in progress",
-		}, nil
-	}
 
 	entry := &Request{
 		Type:        "show_remove",
@@ -280,17 +263,23 @@ func (s *service) RequestShowRemove(ctx context.Context, req ShowRemoveRequestBo
 		Indexer:     mediaRow.Indexer,
 		Quality:     mediaRow.Quality,
 	}
-	if err := s.repo.Create(ctx, entry); err != nil {
+	_, created, err := s.repo.CreateRemoveIfAbsent(ctx, entry, req.MediaID, "show_remove", func(tx *gorm.DB, e *Request) error {
+		return s.processor.EnqueueInGormTx(ctx, tx, QueuePayload{
+			RequestEntryID: e.ID,
+			RequestID:      requestID,
+			Type:           e.Type,
+			UserID:         userID,
+			Username:       username,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := s.processor.Enqueue(ctx, QueuePayload{
-		RequestEntryID: entry.ID,
-		RequestID:      requestID,
-		Type:           entry.Type,
-		UserID:         userID,
-		Username:       username,
-	}); err != nil {
-		return nil, err
+	if !created {
+		return &RequestAck{
+			Status:  "accepted",
+			Message: "show remove already in progress",
+		}, nil
 	}
 	return &RequestAck{Status: "accepted", Message: "show remove request queued for processing"}, nil
 }

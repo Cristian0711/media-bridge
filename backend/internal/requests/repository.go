@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
 	"gorm.io/gorm"
@@ -12,9 +13,12 @@ import (
 type Repository interface {
 	Create(ctx context.Context, req *Request) error
 	// CreateMovieDownloadIfAbsent atomically dedupes in-flight movie downloads (M1).
-	CreateMovieDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tmdbID, quality string) (*Request, bool, error)
+	// When enqueue is non-nil it runs in the same transaction after a new row is created (R2).
+	CreateMovieDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tmdbID, quality string, enqueue func(tx *gorm.DB, entry *Request) error) (*Request, bool, error)
 	// CreateShowDownloadIfAbsent atomically dedupes in-flight show downloads (M1).
-	CreateShowDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tvdbID, quality string, season, episode int) (*Request, bool, error)
+	CreateShowDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tvdbID, quality string, season, episode int, enqueue func(tx *gorm.DB, entry *Request) error) (*Request, bool, error)
+	// CreateRemoveIfAbsent atomically dedupes in-flight remove requests for a media row (R1).
+	CreateRemoveIfAbsent(ctx context.Context, req *Request, mediaID uint, requestType string, enqueue func(tx *gorm.DB, entry *Request) error) (*Request, bool, error)
 	UpdateStatus(ctx context.Context, requestID uint, status string) error
 	// MarkDownloadingIfQueued moves queued → downloading after qBittorrent accepts the torrent (M2).
 	MarkDownloadingIfQueued(ctx context.Context, requestID uint) (bool, error)
@@ -27,6 +31,10 @@ type Repository interface {
 	MarkRemovedIfRemoving(ctx context.Context, requestID uint) (bool, error)
 	// MarkFailedIfRemoving sets status to 'failed' when still removing.
 	MarkFailedIfRemoving(ctx context.Context, requestID uint) (bool, error)
+	// MarkQueuedIfPending moves pending → queued when forwarding to download queue (R7).
+	MarkQueuedIfPending(ctx context.Context, requestID uint) (bool, error)
+	// MarkRemovingIfPending moves pending → removing when forwarding to remove queue (R7).
+	MarkRemovingIfPending(ctx context.Context, requestID uint) (bool, error)
 	List(ctx context.Context, page, pageSize int) ([]Request, int64, error)
 	ListByUser(ctx context.Context, userID uint, page, pageSize int) ([]Request, int64, error)
 	FindByID(ctx context.Context, id uint) (*Request, error)
@@ -63,6 +71,16 @@ type Repository interface {
 	// ListDownloading returns download requests still in the 'downloading' state
 	// with a linked media row (ready for hardlink/torrent completion checks).
 	ListDownloading(ctx context.Context) ([]Request, error)
+
+	// ListOrphanedPending returns pending requests older than minAge with no queue job (R2 reconciler).
+	ListOrphanedPending(ctx context.Context, minAge time.Duration) ([]Request, error)
+	// ListStuckRemoving returns removing requests with no active remove queue job (R2 reconciler).
+	ListStuckRemoving(ctx context.Context, minAge time.Duration, hasRemoveJob func(ctx context.Context, requestEntryID uint) (bool, error)) ([]Request, error)
+	// ListStuckQueued returns queued requests with no active download queue job (R2 reconciler).
+	ListStuckQueued(ctx context.Context, minAge time.Duration, hasDownloadJob func(ctx context.Context, requestEntryID uint) (bool, error)) ([]Request, error)
+
+	// PurgeTerminalOlderThan deletes terminal request rows older than retention (R9).
+	PurgeTerminalOlderThan(ctx context.Context, retention time.Duration) (int64, error)
 }
 
 type repository struct {
@@ -127,6 +145,14 @@ func (r *repository) MarkFailedIfRemoving(ctx context.Context, requestID uint) (
 	return r.updateStatusWhen(ctx, requestID, []string{"removing"}, "failed")
 }
 
+func (r *repository) MarkQueuedIfPending(ctx context.Context, requestID uint) (bool, error) {
+	return r.updateStatusWhen(ctx, requestID, []string{"pending"}, "queued")
+}
+
+func (r *repository) MarkRemovingIfPending(ctx context.Context, requestID uint) (bool, error) {
+	return r.updateStatusWhen(ctx, requestID, []string{"pending"}, "removing")
+}
+
 func (r *repository) updateStatusWhen(ctx context.Context, requestID uint, from []string, to string) (bool, error) {
 	res := r.db.WithContext(ctx).
 		Model(&Request{}).
@@ -160,7 +186,7 @@ func (r *repository) CancelDownloadsByMediaID(ctx context.Context, mediaID uint)
 		Model(&Request{}).
 		Where("media_id = ?", mediaID).
 		Where("type IN ?", []string{"movie_download", "show_download"}).
-		Where("status IN ?", activeDownloadStatuses).
+		Where("status IN ?", cancellableDownloadStatusesForRemove).
 		Pluck("id", &ids).Error; err != nil {
 		return 0, err
 	}
@@ -242,16 +268,28 @@ func (r *repository) FindByID(ctx context.Context, id uint) (*Request, error) {
 // catches the duplicate via the media row.
 var activeDownloadStatuses = []string{"pending", "queued", "downloading"}
 
+// cancellableDownloadStatusesForRemove includes downloaded so remove can clean up
+// requests finalized just before cancel runs (R5).
+var cancellableDownloadStatusesForRemove = []string{"pending", "queued", "downloading", "downloaded"}
+
+var terminalRequestStatuses = []string{"downloaded", "removed", "failed", "cancelled"}
+
 // activeRemoveStatuses lists the request states that count as "a remove is
 // already in motion" for this media_id. Once a remove is fully done the media
 // row is gone so a fresh remove POST simply 404s upstream.
 var activeRemoveStatuses = []string{"pending", "removing"}
 
-func (r *repository) CreateMovieDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tmdbID, quality string) (*Request, bool, error) {
+func (r *repository) CreateMovieDownloadIfAbsent(
+	ctx context.Context,
+	req *Request,
+	imdbID, tmdbID, quality string,
+	enqueue func(tx *gorm.DB, entry *Request) error,
+) (*Request, bool, error) {
 	if imdbID == "" && tmdbID == "" {
 		return nil, false, fmt.Errorf("movie download requires imdb_id or tmdb_id")
 	}
 	var existing Request
+	created := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Model(&Request{}).
 			Where("type = ?", "movie_download").
@@ -267,7 +305,14 @@ func (r *repository) CreateMovieDownloadIfAbsent(ctx context.Context, req *Reque
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		return tx.Create(req).Error
+		if err := tx.Create(req).Error; err != nil {
+			return err
+		}
+		created = true
+		if enqueue != nil {
+			return enqueue(tx, req)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, false, err
@@ -278,14 +323,21 @@ func (r *repository) CreateMovieDownloadIfAbsent(ctx context.Context, req *Reque
 	if row, err := r.FindByID(ctx, req.ID); err == nil {
 		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
 	}
-	return req, true, nil
+	return req, created, nil
 }
 
-func (r *repository) CreateShowDownloadIfAbsent(ctx context.Context, req *Request, imdbID, tvdbID, quality string, season, episode int) (*Request, bool, error) {
+func (r *repository) CreateShowDownloadIfAbsent(
+	ctx context.Context,
+	req *Request,
+	imdbID, tvdbID, quality string,
+	season, episode int,
+	enqueue func(tx *gorm.DB, entry *Request) error,
+) (*Request, bool, error) {
 	if imdbID == "" && tvdbID == "" {
 		return nil, false, fmt.Errorf("show download requires imdb_id or tvdb_id")
 	}
 	var existing Request
+	created := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Model(&Request{}).
 			Where("type = ?", "show_download").
@@ -303,7 +355,14 @@ func (r *repository) CreateShowDownloadIfAbsent(ctx context.Context, req *Reques
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		return tx.Create(req).Error
+		if err := tx.Create(req).Error; err != nil {
+			return err
+		}
+		created = true
+		if enqueue != nil {
+			return enqueue(tx, req)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, false, err
@@ -314,7 +373,51 @@ func (r *repository) CreateShowDownloadIfAbsent(ctx context.Context, req *Reques
 	if row, err := r.FindByID(ctx, req.ID); err == nil {
 		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
 	}
-	return req, true, nil
+	return req, created, nil
+}
+
+func (r *repository) CreateRemoveIfAbsent(
+	ctx context.Context,
+	req *Request,
+	mediaID uint,
+	requestType string,
+	enqueue func(tx *gorm.DB, entry *Request) error,
+) (*Request, bool, error) {
+	if mediaID == 0 {
+		return nil, false, fmt.Errorf("remove requires media_id")
+	}
+	var existing Request
+	created := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Request{}).
+			Where("media_id = ?", mediaID).
+			Where("type = ?", requestType).
+			Where("status IN ?", activeRemoveStatuses).
+			Order("created_at DESC").
+			First(&existing).Error; err == nil {
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := tx.Create(req).Error; err != nil {
+			return err
+		}
+		created = true
+		if enqueue != nil {
+			return enqueue(tx, req)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if existing.ID != 0 {
+		return &existing, false, nil
+	}
+	if row, err := r.FindByID(ctx, req.ID); err == nil {
+		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
+	}
+	return req, created, nil
 }
 
 func (r *repository) FindActiveMovieDownload(ctx context.Context, imdbID, tmdbID, quality string) (*Request, error) {
@@ -403,4 +506,88 @@ func (r *repository) FindActiveRemoveByMediaID(ctx context.Context, mediaID uint
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (r *repository) ListOrphanedPending(ctx context.Context, minAge time.Duration) ([]Request, error) {
+	cutoff := time.Now().Add(-minAge)
+	var rows []Request
+	err := r.db.WithContext(ctx).
+		Model(&Request{}).
+		Where("status = ?", "pending").
+		Where("created_at < ?", cutoff).
+		Order("created_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *repository) ListStuckQueued(
+	ctx context.Context,
+	minAge time.Duration,
+	hasDownloadJob func(ctx context.Context, requestEntryID uint) (bool, error),
+) ([]Request, error) {
+	cutoff := time.Now().Add(-minAge)
+	var rows []Request
+	if err := r.db.WithContext(ctx).
+		Model(&Request{}).
+		Where("type IN ?", []string{"movie_download", "show_download"}).
+		Where("status = ?", "queued").
+		Where("updated_at < ?", cutoff).
+		Order("updated_at ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return filterWithoutJob(ctx, rows, hasDownloadJob)
+}
+
+func (r *repository) ListStuckRemoving(
+	ctx context.Context,
+	minAge time.Duration,
+	hasRemoveJob func(ctx context.Context, requestEntryID uint) (bool, error),
+) ([]Request, error) {
+	cutoff := time.Now().Add(-minAge)
+	var rows []Request
+	if err := r.db.WithContext(ctx).
+		Model(&Request{}).
+		Where("type IN ?", []string{"movie_remove", "show_remove"}).
+		Where("status = ?", "removing").
+		Where("updated_at < ?", cutoff).
+		Order("updated_at ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return filterWithoutJob(ctx, rows, hasRemoveJob)
+}
+
+func filterWithoutJob(
+	ctx context.Context,
+	rows []Request,
+	hasJob func(ctx context.Context, requestEntryID uint) (bool, error),
+) ([]Request, error) {
+	if hasJob == nil {
+		return rows, nil
+	}
+	out := make([]Request, 0, len(rows))
+	for i := range rows {
+		ok, err := hasJob(ctx, rows[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			out = append(out, rows[i])
+		}
+	}
+	return out, nil
+}
+
+func (r *repository) PurgeTerminalOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-retention)
+	res := r.db.WithContext(ctx).
+		Unscoped().
+		Where("status IN ?", terminalRequestStatuses).
+		Where("updated_at < ?", cutoff).
+		Delete(&Request{})
+	return res.RowsAffected, res.Error
 }

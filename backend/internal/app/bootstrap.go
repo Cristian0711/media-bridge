@@ -107,6 +107,7 @@ func Bootstrap() (*Server, error) {
 		return nil, fmt.Errorf("requests queue: %w", err)
 	}
 	requestsProcessor.Start(context.Background(), cfg.QueueWorkers.Requests)
+	requests.NewReconciler(requestsRepo, requestsProcessor, downloadProcessor, removeProcessor).Start(context.Background())
 	requests.NewDownloadCompletionWatcher(
 		requestsRepo,
 		hardlinkSvc,

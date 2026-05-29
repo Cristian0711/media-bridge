@@ -11,6 +11,7 @@ import (
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type QueuePayload struct {
@@ -158,7 +159,16 @@ func (p *QueueProcessor) forwardDownload(ctx context.Context, log *zap.Logger, r
 			zap.Uint("request_entry_id", req.ID),
 		)
 	}
-	return p.repo.UpdateStatus(ctx, req.ID, "queued")
+	updated, err := p.repo.MarkQueuedIfPending(ctx, req.ID)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		log.Debug("skip status update: request no longer pending",
+			zap.Uint("request_entry_id", req.ID),
+		)
+	}
+	return nil
 }
 
 func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req *Request) error {
@@ -181,11 +191,38 @@ func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req
 			zap.Uint("request_entry_id", req.ID),
 		)
 	}
-	return p.repo.UpdateStatus(ctx, req.ID, "removing")
+	updated, err := p.repo.MarkRemovingIfPending(ctx, req.ID)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		log.Debug("skip status update: request no longer pending",
+			zap.Uint("request_entry_id", req.ID),
+		)
+	}
+	return nil
 }
 
 func (p *QueueProcessor) Enqueue(ctx context.Context, payload QueuePayload) error {
 	return p.queue.Enqueue(ctx, payload)
+}
+
+// EnqueueInGormTx inserts a routing job in the same Postgres transaction as tx (R2).
+func (p *QueueProcessor) EnqueueInGormTx(ctx context.Context, tx *gorm.DB, payload QueuePayload) error {
+	return p.queue.EnqueueInGormTx(ctx, tx, payload)
+}
+
+// HasJobForRequest reports whether a requests_processing_queue job exists for this request.
+func (p *QueueProcessor) HasJobForRequest(ctx context.Context, requestEntryID uint) (bool, error) {
+	if requestEntryID == 0 {
+		return false, nil
+	}
+	return p.queue.HasJobForPayloadField(ctx, "request_entry_id", uint64(requestEntryID))
+}
+
+// PurgeCompletedOlderThan deletes completed jobs older than retention (R9).
+func (p *QueueProcessor) PurgeCompletedOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
+	return p.queue.PurgeCompletedOlderThan(ctx, retention)
 }
 
 func (p *QueueProcessor) ListEntries(ctx context.Context, page, pageSize int) ([]QueueEntryResponse, int64, error) {

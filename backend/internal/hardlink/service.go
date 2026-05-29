@@ -211,6 +211,9 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 	log.Info("hardlink completed",
 		zap.Int("total", total),
 	)
+	if err := s.mediaService.UpdateLibraryPath(ctx, mediaID, destinationPath); err != nil {
+		log.Warn("persist library path failed", zap.Error(err))
+	}
 	return nil
 }
 

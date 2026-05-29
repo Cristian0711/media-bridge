@@ -30,6 +30,11 @@ type Repository interface {
 	DeleteShowEntriesByIDs(ctx context.Context, showEntryIDs []uint) error
 	CountShowEntriesByShowID(ctx context.Context, showID uint) (int64, error)
 	DeleteShowByID(ctx context.Context, showID uint) error
+	// DeleteMovieMediaCascade removes media + orphan movie in one transaction (R3).
+	DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error
+	// DeleteShowMediaCascade removes media + orphan show_entry/show in one transaction (R3).
+	DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID, showID uint) error
+	UpdateLibraryPath(ctx context.Context, mediaID uint, libraryPath string) error
 }
 
 type repository struct {
@@ -304,7 +309,7 @@ func (r *repository) CountMediaByShowEntryID(ctx context.Context, showEntryID ui
 }
 
 func (r *repository) DeleteShowEntriesByIDs(ctx context.Context, showEntryIDs []uint) error {
-	return r.db.WithContext(ctx).Delete(&ShowEntry{}, showEntryIDs).Error
+	return r.db.WithContext(ctx).Unscoped().Where("id IN ?", showEntryIDs).Delete(&ShowEntry{}).Error
 }
 
 func (r *repository) CountShowEntriesByShowID(ctx context.Context, showID uint) (int64, error) {
@@ -317,4 +322,56 @@ func (r *repository) CountShowEntriesByShowID(ctx context.Context, showID uint) 
 
 func (r *repository) DeleteShowByID(ctx context.Context, showID uint) error {
 	return r.db.WithContext(ctx).Delete(&Show{}, showID).Error
+}
+
+func (r *repository) DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&Media{}).Where("movie_id = ?", movieID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		return tx.Delete(&Movie{}, movieID).Error
+	})
+}
+
+func (r *repository) DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID, showID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
+			return err
+		}
+		var entryCount int64
+		if err := tx.Model(&Media{}).Where("show_entry_id = ?", showEntryID).Count(&entryCount).Error; err != nil {
+			return err
+		}
+		if entryCount > 0 {
+			return nil
+		}
+		if err := tx.Unscoped().Where("id = ?", showEntryID).Delete(&ShowEntry{}).Error; err != nil {
+			return err
+		}
+		if showID == 0 {
+			return nil
+		}
+		var showCount int64
+		if err := tx.Model(&ShowEntry{}).Where("show_id = ?", showID).Count(&showCount).Error; err != nil {
+			return err
+		}
+		if showCount > 0 {
+			return nil
+		}
+		return tx.Delete(&Show{}, showID).Error
+	})
+}
+
+func (r *repository) UpdateLibraryPath(ctx context.Context, mediaID uint, libraryPath string) error {
+	return r.db.WithContext(ctx).
+		Model(&Media{}).
+		Where("id = ?", mediaID).
+		Update("library_path", libraryPath).Error
 }

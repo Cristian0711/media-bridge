@@ -41,6 +41,7 @@ type Service interface {
 	// FindExistingDownloadMediaID returns the newest media row for this download scope, or 0 if none.
 	FindExistingDownloadMediaID(ctx context.Context, input CreateFromRequestInput) (uint, error)
 	RemoveFromRequest(ctx context.Context, input CreateFromRequestInput) error
+	UpdateLibraryPath(ctx context.Context, mediaID uint, libraryPath string) error
 	GetAllMediaPaginated(ctx context.Context, page, pageSize int) (*PaginatedMediaResponse, error)
 	GetMediaForUserPaginated(ctx context.Context, userID uint, page, pageSize int) (*PaginatedMediaResponse, error)
 	GetMediaByID(ctx context.Context, id uint) (*Media, error)
@@ -121,6 +122,13 @@ func (s *service) RemoveFromRequest(ctx context.Context, input CreateFromRequest
 		return s.removeShow(ctx, input)
 	}
 	return fmt.Errorf("unsupported request type for media removal: %s", input.Type)
+}
+
+func (s *service) UpdateLibraryPath(ctx context.Context, mediaID uint, libraryPath string) error {
+	if mediaID == 0 || libraryPath == "" {
+		return nil
+	}
+	return s.repo.UpdateLibraryPath(ctx, mediaID, libraryPath)
 }
 
 func (s *service) createMovie(ctx context.Context, input CreateFromRequestInput) (uint, error) {
@@ -320,7 +328,7 @@ func (s *service) removeMovie(ctx context.Context, input CreateFromRequestInput)
 		return fmt.Errorf("media %d is not linked to a movie", input.MediaID)
 	}
 	s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(mediaRow))
-	if err := s.repo.DeleteMediaByIDs(ctx, []uint{input.MediaID}); err != nil {
+	if err := s.repo.DeleteMovieMediaCascade(ctx, input.MediaID, *mediaRow.MovieID); err != nil {
 		return err
 	}
 	log.Info("removed media row",
@@ -328,26 +336,6 @@ func (s *service) removeMovie(ctx context.Context, input CreateFromRequestInput)
 		zap.String("media_type", string(mediaRow.Type)),
 		zap.String("name", mediaRow.Name),
 		zap.Uint("movie_id", *mediaRow.MovieID),
-	)
-
-	remaining, err := s.repo.CountMediaByMovieID(ctx, *mediaRow.MovieID)
-	if err != nil {
-		return err
-	}
-	if remaining > 0 {
-		log.Info("movie kept: other media rows still reference it",
-			zap.Uint("movie_id", *mediaRow.MovieID),
-			zap.Int64("remaining_media_count", remaining),
-		)
-		return nil
-	}
-	if err := s.repo.DeleteMoviesByIDs(ctx, []uint{*mediaRow.MovieID}); err != nil {
-		return err
-	}
-	log.Info("removed movie row",
-		zap.Uint("movie_id", *mediaRow.MovieID),
-		zap.String("imdb_id", mediaString(mediaRow.Movie, func(m *Movie) string { return m.IMDBID })),
-		zap.String("tmdb_id", mediaString(mediaRow.Movie, func(m *Movie) string { return m.TMDBID })),
 	)
 	return nil
 }
@@ -370,7 +358,11 @@ func (s *service) removeShow(ctx context.Context, input CreateFromRequestInput) 
 	}
 
 	s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(mediaRow))
-	if err := s.repo.DeleteMediaByIDs(ctx, []uint{input.MediaID}); err != nil {
+	showID := uint(0)
+	if mediaRow.ShowEntry != nil && mediaRow.ShowEntry.ShowID != 0 {
+		showID = mediaRow.ShowEntry.ShowID
+	}
+	if err := s.repo.DeleteShowMediaCascade(ctx, input.MediaID, *mediaRow.ShowEntryID, showID); err != nil {
 		return err
 	}
 	log.Info("removed media row",
@@ -379,52 +371,6 @@ func (s *service) removeShow(ctx context.Context, input CreateFromRequestInput) 
 		zap.String("name", mediaRow.Name),
 		zap.Uint("show_entry_id", *mediaRow.ShowEntryID),
 	)
-
-	remainingForEntry, err := s.repo.CountMediaByShowEntryID(ctx, *mediaRow.ShowEntryID)
-	if err != nil {
-		return err
-	}
-	if remainingForEntry > 0 {
-		log.Info("show entry kept: other media rows still reference it",
-			zap.Uint("show_entry_id", *mediaRow.ShowEntryID),
-			zap.Int64("remaining_media_count", remainingForEntry),
-		)
-		return nil
-	}
-	if err := s.repo.DeleteShowEntriesByIDs(ctx, []uint{*mediaRow.ShowEntryID}); err != nil {
-		return err
-	}
-	log.Info("removed show entry row", zap.Uint("show_entry_id", *mediaRow.ShowEntryID))
-	if mediaRow.ShowEntry == nil || mediaRow.ShowEntry.ShowID == 0 {
-		return nil
-	}
-	showID := mediaRow.ShowEntry.ShowID
-	remaining, err := s.repo.CountShowEntriesByShowID(ctx, showID)
-	if err != nil {
-		return err
-	}
-	if remaining == 0 {
-		if err := s.repo.DeleteShowByID(ctx, showID); err != nil {
-			return err
-		}
-		log.Info("removed show row",
-			zap.Uint("show_id", showID),
-			zap.String("show_name", mediaString(mediaRow.ShowEntry, func(se *ShowEntry) string {
-				return mediaString(se.Show, func(show *Show) string { return show.Name })
-			})),
-			zap.String("imdb_id", mediaString(mediaRow.ShowEntry, func(se *ShowEntry) string {
-				return mediaString(se.Show, func(show *Show) string { return show.IMDBID })
-			})),
-			zap.String("tvdb_id", mediaString(mediaRow.ShowEntry, func(se *ShowEntry) string {
-				return mediaString(se.Show, func(show *Show) string { return show.TVDBID })
-			})),
-		)
-	} else {
-		log.Info("show kept: other entries still exist",
-			zap.Uint("show_id", showID),
-			zap.Int64("remaining_entry_count", remaining),
-		)
-	}
 	return nil
 }
 

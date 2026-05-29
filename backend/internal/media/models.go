@@ -22,8 +22,9 @@ type Media struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
 	Type      MediaType      `gorm:"type:varchar(20);not null;index" json:"type"`
 	Name      string         `gorm:"not null;index" json:"name"`
-	Path      string         `gorm:"type:text;not null" json:"path"`
-	Indexer   string         `gorm:"type:varchar(100);not null;index" json:"indexer"`
+	Path        string         `gorm:"type:text;not null" json:"path"`
+	LibraryPath string         `gorm:"type:text" json:"library_path,omitempty"`
+	Indexer     string         `gorm:"type:varchar(100);not null;index" json:"indexer"`
 	Quality   string         `gorm:"type:varchar(100);not null;index" json:"quality"`
 	SizeBytes int64          `gorm:"default:0" json:"size_bytes,omitempty"`
 	UserID    uint           `gorm:"not null;index" json:"user_id"`

@@ -197,18 +197,10 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 		hardlinksRemovedLate = removeHardlinksByInode(ctx, log, paths.DestPath, keys)
 	}
 
-	// (8) Gate: confirm savePath holds zero regular files. If any remain
-	// (delete failed, or qBittorrent allocated a file we didn't see),
-	// surface an error so the queue retries and only proceeds to delete
-	// the media row once disk state is actually clean.
-	if paths.SavePath != "" {
-		remaining, cerr := countRegularFiles(ctx, paths.SavePath)
-		if cerr != nil {
-			return fmt.Errorf("verify save path drained: %w", cerr)
-		}
-		if remaining > 0 {
-			return fmt.Errorf("save path %q still contains %d regular file(s) after delete pass", paths.SavePath, remaining)
-		}
+	// (8) Gate: confirm savePath is drained and destPath holds no files
+	// sharing source inodes (R4 — catches hardlinks created after step 7).
+	if err := verifyRemovalDrained(ctx, log, paths, keys); err != nil {
+		return err
 	}
 
 	// (9) Empty-dir cleanup. os.Remove on a non-empty dir fails with
@@ -409,11 +401,15 @@ func (s *service) resolvePaths(row *media.Media) (*resolvedPaths, error) {
 		if row.Movie == nil {
 			return nil, fmt.Errorf("media %d has type=movie but no movie row", row.ID)
 		}
-		folderName := fmt.Sprintf("%s (%s) (%s)", row.Name, row.Movie.IMDBID, row.Quality)
+		destPath := row.LibraryPath
+		if destPath == "" {
+			folderName := fmt.Sprintf("%s (%s) (%s)", row.Name, row.Movie.IMDBID, row.Quality)
+			destPath = filepath.Join(s.moviesPath, folderName)
+		}
 		return &resolvedPaths{
 			SavePath:    deref(row.Movie.SavePath),
 			TorrentHash: deref(row.Movie.TorrentHash),
-			DestPath:    filepath.Join(s.moviesPath, folderName),
+			DestPath:    destPath,
 		}, nil
 
 	case media.MediaTypeShowFull, media.MediaTypeShowSeason, media.MediaTypeShowEpisode:
@@ -422,9 +418,12 @@ func (s *service) resolvePaths(row *media.Media) (*resolvedPaths, error) {
 		}
 		show := row.ShowEntry.Show
 		showRoot := filepath.Join(s.showsPath, fmt.Sprintf("%s (%s) (%s)", show.Name, show.IMDBID, row.Quality))
-		destPath := showRoot
-		if row.ShowEntry.Season != nil {
-			destPath = filepath.Join(showRoot, fmt.Sprintf("Season %d", *row.ShowEntry.Season))
+		destPath := row.LibraryPath
+		if destPath == "" {
+			destPath = showRoot
+			if row.ShowEntry.Season != nil {
+				destPath = filepath.Join(showRoot, fmt.Sprintf("Season %d", *row.ShowEntry.Season))
+			}
 		}
 		return &resolvedPaths{
 			SavePath:    deref(row.ShowEntry.SavePath),
@@ -436,6 +435,80 @@ func (s *service) resolvePaths(row *media.Media) (*resolvedPaths, error) {
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", row.Type)
 	}
+}
+
+const removalDrainMaxPasses = 3
+
+func verifyRemovalDrained(ctx context.Context, log *zap.Logger, paths *resolvedPaths, keys map[fileKey]string) error {
+	for pass := 1; pass <= removalDrainMaxPasses; pass++ {
+		if len(keys) > 0 && paths.DestPath != "" {
+			if removed := removeHardlinksByInode(ctx, log, paths.DestPath, keys); removed > 0 {
+				log.Info("removed late hardlinks during drain gate",
+					zap.Int("removed", removed),
+					zap.Int("pass", pass),
+				)
+			}
+		}
+		if paths.SavePath != "" {
+			remaining, err := countRegularFiles(ctx, paths.SavePath)
+			if err != nil {
+				return fmt.Errorf("verify save path drained: %w", err)
+			}
+			if remaining > 0 {
+				if pass == removalDrainMaxPasses {
+					return fmt.Errorf("save path %q still contains %d regular file(s) after delete pass", paths.SavePath, remaining)
+				}
+				continue
+			}
+		}
+		if len(keys) > 0 && paths.DestPath != "" {
+			destMatches, err := countDestInodesMatching(ctx, paths.DestPath, keys)
+			if err != nil {
+				return fmt.Errorf("verify dest path drained: %w", err)
+			}
+			if destMatches > 0 {
+				if pass == removalDrainMaxPasses {
+					return fmt.Errorf("dest path %q still contains %d hardlink(s) after delete pass", paths.DestPath, destMatches)
+				}
+				continue
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+func countDestInodesMatching(ctx context.Context, destPath string, keys map[fileKey]string) (int, error) {
+	if len(keys) == 0 || destPath == "" {
+		return 0, nil
+	}
+	count := 0
+	err := filepath.Walk(destPath, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if info.IsDir() || !info.Mode().IsRegular() {
+			return nil
+		}
+		key, ok := keyOf(info)
+		if !ok {
+			return nil
+		}
+		if _, match := keys[key]; match {
+			count++
+		}
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return count, err
+	}
+	return count, nil
 }
 
 func deref(p *string) string {

@@ -36,10 +36,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 )
 
 // ErrPermanentFailure marks a handler error as non-retryable. When a handler
@@ -116,6 +118,16 @@ func (q *Queue[T]) EnsureTable(ctx context.Context) error {
 		return fmt.Errorf("ensure table: %w", err)
 	}
 	return nil
+}
+
+// EnqueueInGormTx inserts a job in the same Postgres transaction as tx (R2).
+func (q *Queue[T]) EnqueueInGormTx(ctx context.Context, tx *gorm.DB, payload T) error {
+	return EnqueueGormTx(ctx, tx, q.name, q.opts, payload)
+}
+
+// HasJobForPayloadField reports pending/processing/completed jobs for a payload field.
+func (q *Queue[T]) HasJobForPayloadField(ctx context.Context, field string, value uint64) (bool, error) {
+	return q.HasForwardJobByPayloadField(ctx, field, value)
 }
 
 // Enqueue adds a new job to the back of the queue.
@@ -342,6 +354,40 @@ func (q *Queue[T]) Fail(ctx context.Context, jobID uuid.UUID, reason error) (int
 		return 0, fmt.Errorf("fail job %s: %w", jobID, err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// PurgeCompletedOlderThan deletes completed/failed jobs older than retention (R9).
+func (q *Queue[T]) PurgeCompletedOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-retention)
+	sql := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE queue_name = $1
+		  AND status IN ('completed', 'failed')
+		  AND completed_at IS NOT NULL
+		  AND completed_at < $2
+	`, q.opts.Table)
+	tag, err := q.db.Exec(ctx, sql, q.name, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge completed jobs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// TouchLease bumps last_processed_at for a processing job (R6 heartbeat).
+func (q *Queue[T]) TouchLease(ctx context.Context, jobID uuid.UUID) error {
+	sql := fmt.Sprintf(`
+		UPDATE %s
+		SET last_processed_at = NOW()
+		WHERE id = $1 AND status = 'processing'
+	`, q.opts.Table)
+	tag, err := q.db.Exec(ctx, sql, jobID)
+	if err != nil {
+		return fmt.Errorf("touch lease job %s: %w", jobID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("touch lease job %s: not processing", jobID)
+	}
+	return nil
 }
 
 // validateIdentifier ensures a string is safe to interpolate as a Postgres

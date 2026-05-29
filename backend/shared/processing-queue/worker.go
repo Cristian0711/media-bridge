@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // HandlerFunc is the function you provide to process a job.
@@ -76,7 +78,13 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 			continue
 		}
 
-		if err := handler(ctx, job); err != nil {
+		handlerCtx, cancelHandler := context.WithCancel(ctx)
+		stopHeartbeat := q.startLeaseHeartbeat(handlerCtx, job.ID)
+		err = handler(handlerCtx, job)
+		stopHeartbeat()
+		cancelHandler()
+
+		if err != nil {
 			permanent := errors.Is(err, ErrPermanentFailure)
 			slog.WarnContext(ctx, "processingqueue: job failed",
 				"queue", q.name,
@@ -153,6 +161,7 @@ func (q *Queue[T]) runRecovery(ctx context.Context) {
 }
 
 func (q *Queue[T]) recoverStale(ctx context.Context) error {
+	// Use last_processed_at as the lease clock — workers bump it via TouchLease (R6).
 	sql := fmt.Sprintf(`
 		UPDATE %s
 		SET
@@ -162,7 +171,7 @@ func (q *Queue[T]) recoverStale(ctx context.Context) error {
 			error     = 'worker timeout — requeued by recovery'
 		WHERE queue_name = $1
 		  AND status     = 'processing'
-		  AND started_at < NOW() - $2::INTERVAL
+		  AND COALESCE(last_processed_at, started_at) < NOW() - $2::INTERVAL
 	`, q.opts.Table)
 
 	tag, err := q.db.Exec(ctx, sql, q.name, q.opts.WorkerTimeout.String())
@@ -176,6 +185,31 @@ func (q *Queue[T]) recoverStale(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+const leaseHeartbeatInterval = 30 * time.Second
+
+func (q *Queue[T]) startLeaseHeartbeat(ctx context.Context, jobID uuid.UUID) context.CancelFunc {
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(leaseHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				if err := q.TouchLease(heartbeatCtx, jobID); err != nil {
+					slog.DebugContext(heartbeatCtx, "processingqueue: lease heartbeat failed",
+						"queue", q.name,
+						"job_id", jobID,
+						"error", err,
+					)
+				}
+			}
+		}
+	}()
+	return cancel
 }
 
 // wait blocks for PollInterval or until ctx is done.
