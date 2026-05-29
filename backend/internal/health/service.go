@@ -91,6 +91,7 @@ func (s *Service) run(ctx context.Context, includeFS bool) Report {
 	checks = append(checks, qbitCheck)
 	checks = append(checks,
 		s.checkMediaTorrentRegistry(ctx, torrentByHash),
+		s.checkMediaConsistency(ctx),
 		checkQueues(ctx, s.db),
 		checkPipeline(ctx, s.db),
 	)
