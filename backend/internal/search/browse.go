@@ -159,6 +159,21 @@ func (s *Service) Browse(ctx context.Context, listID string, page int) (*SearchP
 	if page < 1 {
 		page = 1
 	}
+	if page == 1 {
+		if catalogKey, ok := catalogCacheKeyForList(listID); ok {
+			if catalog, ok := s.browseCache.getCatalog(catalogKey); ok {
+				for _, row := range catalog.Lists {
+					if row.ID == listID {
+						return &SearchPage{
+							Results:    append([]Result{}, row.Results...),
+							Page:       row.Page,
+							TotalPages: row.TotalPages,
+						}, nil
+					}
+				}
+			}
+		}
+	}
 	if cached, ok := s.browseCache.getListPage(listID, page); ok {
 		return cached, nil
 	}
@@ -168,6 +183,20 @@ func (s *Service) Browse(ctx context.Context, listID string, page int) (*SearchP
 	}
 	s.browseCache.setListPage(listID, page, result)
 	return result, nil
+}
+
+func catalogCacheKeyForList(listID string) (string, bool) {
+	if listID == "trending-movies" || listID == "trending-series" {
+		return globalCatalogCacheKey, true
+	}
+	if strings.Contains(listID, ":") {
+		serviceID, _, err := parseServiceListID(listID)
+		if err != nil {
+			return "", false
+		}
+		return serviceCatalogCacheKey(serviceID), true
+	}
+	return "", false
 }
 
 func (s *Service) warmBrowseListPage(ctx context.Context, listID string, page int) error {

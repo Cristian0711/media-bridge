@@ -93,8 +93,33 @@ func (h *Handler) BrowseServiceLists(c *gin.Context) {
 	c.JSON(http.StatusOK, lists)
 }
 
+func (h *Handler) BrowseServiceCatalog(c *gin.Context) {
+	serviceID := c.Param("serviceId")
+	catalog, err := h.svc.BrowseServiceCatalog(c.Request.Context(), serviceID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if catalog.Lists == nil {
+		catalog.Lists = []BrowseListRow{}
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
 func (h *Handler) BrowseGlobalLists(c *gin.Context) {
 	c.JSON(http.StatusOK, h.svc.BrowseGlobalLists())
+}
+
+func (h *Handler) BrowseGlobalCatalog(c *gin.Context) {
+	catalog, err := h.svc.BrowseGlobalCatalog(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load global browse"})
+		return
+	}
+	if catalog.Lists == nil {
+		catalog.Lists = []BrowseListRow{}
+	}
+	c.JSON(http.StatusOK, catalog)
 }
 
 func (h *Handler) BrowseList(c *gin.Context) {

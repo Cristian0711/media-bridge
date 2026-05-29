@@ -19,6 +19,12 @@ export type BrowsePage = {
   totalPages: number;
 };
 
+export type BrowseListRow = BrowseListMeta & BrowsePage;
+
+export type BrowseCatalog = {
+  lists: BrowseListRow[];
+};
+
 async function authFetch(path: string): Promise<Response> {
   const token = getToken();
   if (!token) throw new ApiError(401, 'Not authenticated');
@@ -32,6 +38,23 @@ export async function fetchBrowseServices(): Promise<BrowseService[]> {
   return body as BrowseService[];
 }
 
+export async function fetchBrowseServiceCatalog(serviceId: string): Promise<BrowseCatalog> {
+  const res = await authFetch(
+    `/api/v1/browse/services/${encodeURIComponent(serviceId)}/catalog`,
+  );
+  const body = await parseJson(res);
+  if (!res.ok) throw apiErrorFrom(res, body);
+  return body as BrowseCatalog;
+}
+
+export async function fetchBrowseGlobalCatalog(): Promise<BrowseCatalog> {
+  const res = await authFetch('/api/v1/browse/global/catalog');
+  const body = await parseJson(res);
+  if (!res.ok) throw apiErrorFrom(res, body);
+  return body as BrowseCatalog;
+}
+
+/** @deprecated Prefer fetchBrowseServiceCatalog */
 export async function fetchBrowseServiceLists(serviceId: string): Promise<BrowseListMeta[]> {
   const res = await authFetch(`/api/v1/browse/services/${encodeURIComponent(serviceId)}/lists`);
   const body = await parseJson(res);
@@ -39,6 +62,7 @@ export async function fetchBrowseServiceLists(serviceId: string): Promise<Browse
   return body as BrowseListMeta[];
 }
 
+/** @deprecated Prefer fetchBrowseGlobalCatalog */
 export async function fetchBrowseGlobalLists(): Promise<BrowseListMeta[]> {
   const res = await authFetch('/api/v1/browse/lists');
   const body = await parseJson(res);

@@ -45,21 +45,19 @@ func TestBrowseCacheListPage(t *testing.T) {
 	}
 }
 
-func TestAllBrowseWarmListIDs(t *testing.T) {
+func TestCatalogPopulatesListPageCache(t *testing.T) {
 	t.Parallel()
-	ids := allBrowseWarmListIDs()
-	want := 2 + len(browseServices)*len(serviceListKinds) // trending-movies + trending-series + per service
-	if len(ids) != want {
-		t.Fatalf("unexpected warm list count: %d, want %d", len(ids), want)
+	c := newBrowseCache()
+	catalog := &BrowseCatalog{
+		Lists: []BrowseListRow{{
+			ID: "netflix:movies", Title: "Popular Movies", Page: 1, TotalPages: 3,
+			Results: []Result{{Type: "movie", Score: 1}},
+		}},
 	}
-	seen := make(map[string]bool)
-	for _, id := range ids {
-		if seen[id] {
-			t.Fatalf("duplicate warm id: %s", id)
-		}
-		seen[id] = true
-	}
-	if !seen["trending-movies"] || !seen["trending-series"] || !seen["netflix:movies"] || !seen["netflix:drama-movies"] {
-		t.Fatalf("missing expected ids: %v", ids)
+	c.setCatalog(serviceCatalogCacheKey("netflix"), catalog)
+
+	got, ok := c.getListPage("netflix:movies", 1)
+	if !ok || len(got.Results) != 1 {
+		t.Fatalf("expected list page from catalog cache, ok=%v", ok)
 	}
 }

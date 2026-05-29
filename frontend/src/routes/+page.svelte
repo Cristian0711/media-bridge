@@ -2,14 +2,14 @@
   import { onMount } from 'svelte';
   import BrowseRow from '$lib/browse/browse-row.svelte';
   import ServiceStrip from '$lib/browse/service-strip.svelte';
-  import type { BrowseListMeta, BrowseService } from '$lib/browse/api';
+  import type { BrowseCatalog, BrowseListMeta, BrowseService } from '$lib/browse/api';
   import {
-    discoverListCacheKey,
-    discoverServiceListsCacheKey,
+    applyBrowseCatalogToRowState,
+    discoverServiceCatalogCacheKey,
     isDiscoverFresh,
-    loadBrowseGlobalListsCached,
-    loadBrowseListCached,
-    loadBrowseServiceListsCached,
+    listsFromCatalog,
+    loadBrowseGlobalCatalogCached,
+    loadBrowseServiceCatalogCached,
     loadBrowseServicesCached,
   } from '$lib/data/browse-cache';
   import { getCached } from '$lib/data/list-cache';
@@ -17,11 +17,10 @@
   import MediaActionHost, { type MediaRow } from '$lib/media/media-action-host.svelte';
   import { preloadTabRoutes } from '$lib/navigation/preload-routes';
   import { ApiError } from '$lib/api/client';
-  import type { BrowsePage } from '$lib/browse/api';
   import type { SearchResult } from '$lib/types/search';
 
   const SERVICES_KEY = 'discover:services';
-  const GLOBAL_LISTS_KEY = 'discover:global-lists';
+  const GLOBAL_CATALOG_KEY = 'discover:global-catalog';
 
   type RowState = {
     loading: boolean;
@@ -64,45 +63,8 @@
     initPage();
   });
 
-  function applyRowFromCache(listId: string): boolean {
-    const cached = getCached<BrowsePage>(discoverListCacheKey(listId, 1));
-    if (!cached) return false;
-    rowState = {
-      ...rowState,
-      [listId]: { loading: false, error: '', results: cached.results },
-    };
-    return true;
-  }
-
-  async function loadList(id: string, options?: { force?: boolean }) {
-    const key = discoverListCacheKey(id, 1);
-    const cached = getCached<BrowsePage>(key);
-
-    if (cached && !options?.force) {
-      rowState = {
-        ...rowState,
-        [id]: { loading: false, error: '', results: cached.results },
-      };
-    } else {
-      rowState = { ...rowState, [id]: { ...rowState[id], loading: true, error: '' } };
-    }
-
-    const needsFetch = options?.force || !cached || !isDiscoverFresh(key);
-    if (!needsFetch) return;
-
-    try {
-      const page = await loadBrowseListCached(id, 1, options);
-      rowState = { ...rowState, [id]: { loading: false, error: '', results: page.results } };
-    } catch (e) {
-      rowState = {
-        ...rowState,
-        [id]: {
-          loading: false,
-          error: e instanceof ApiError ? e.message : 'Failed to load',
-          results: rowState[id]?.results ?? [],
-        },
-      };
-    }
+  function mergeRowState(fromCatalog: Record<string, RowState>) {
+    rowState = { ...rowState, ...fromCatalog };
   }
 
   async function initPage() {
@@ -110,46 +72,29 @@
     pageError = '';
 
     const cachedServices = getCached<BrowseService[]>(SERVICES_KEY);
-    const cachedGlobal = getCached<BrowseListMeta[]>(GLOBAL_LISTS_KEY);
+    const cachedGlobalCatalog = getCached<BrowseCatalog>(GLOBAL_CATALOG_KEY);
     if (cachedServices) services = cachedServices;
-    if (cachedGlobal) {
-      globalLists = cachedGlobal;
-      for (const list of cachedGlobal) {
-        rowState = {
-          ...rowState,
-          [list.id]: rowState[list.id] ?? { loading: true, error: '', results: [] },
-        };
-        applyRowFromCache(list.id);
-      }
+    if (cachedGlobalCatalog) {
+      globalLists = listsFromCatalog(cachedGlobalCatalog);
+      mergeRowState(applyBrowseCatalogToRowState(cachedGlobalCatalog));
     }
 
     try {
-      const needsMeta =
-        !cachedServices ||
-        !isDiscoverFresh(SERVICES_KEY) ||
-        !cachedGlobal ||
-        !isDiscoverFresh(GLOBAL_LISTS_KEY);
+      const needsServices = !cachedServices || !isDiscoverFresh(SERVICES_KEY);
+      const needsGlobal = !cachedGlobalCatalog || !isDiscoverFresh(GLOBAL_CATALOG_KEY);
 
-      if (needsMeta) {
-        const [svc, global] = await Promise.all([
-          loadBrowseServicesCached(),
-          loadBrowseGlobalListsCached(),
-        ]);
-        services = svc;
-        globalLists = global;
-        rowState = Object.fromEntries(
-          global.map((l) => [
-            l.id,
-            rowState[l.id] ?? { loading: true, error: '', results: [] },
-          ]),
-        );
+      if (needsServices) {
+        services = await loadBrowseServicesCached();
+      }
+      if (needsGlobal) {
+        const globalCatalog = await loadBrowseGlobalCatalogCached();
+        globalLists = listsFromCatalog(globalCatalog);
+        mergeRowState(applyBrowseCatalogToRowState(globalCatalog));
       }
 
       if (services.length > 0) {
         await selectService(selectedServiceId || services[0].id);
       }
-
-      await Promise.all(globalLists.map((l) => loadList(l.id)));
     } catch (e) {
       pageError = e instanceof ApiError ? e.message : 'Failed to load discover';
     } finally {
@@ -158,44 +103,32 @@
   }
 
   async function selectService(id: string) {
-    if (selectedServiceId === id && serviceLists.length > 0) {
-      const allCached = serviceLists.every((l) => applyRowFromCache(l.id));
-      if (allCached) return;
+    const catalogKey = discoverServiceCatalogCacheKey(id);
+    const cachedCatalog = getCached<BrowseCatalog>(catalogKey);
+
+    if (selectedServiceId === id && serviceLists.length > 0 && cachedCatalog) {
+      return;
     }
 
     selectedServiceId = id;
     listsLoading = true;
     pageError = '';
 
-    const listsKey = discoverServiceListsCacheKey(id);
-    const cachedLists = getCached<BrowseListMeta[]>(listsKey);
-    if (cachedLists) {
-      serviceLists = cachedLists;
-      for (const list of cachedLists) {
-        rowState = {
-          ...rowState,
-          [list.id]: rowState[list.id] ?? { loading: true, error: '', results: [] },
-        };
-        applyRowFromCache(list.id);
-      }
+    if (cachedCatalog) {
+      serviceLists = listsFromCatalog(cachedCatalog);
+      mergeRowState(applyBrowseCatalogToRowState(cachedCatalog));
     }
 
     try {
-      const needsLists = !cachedLists || !isDiscoverFresh(listsKey);
-      if (needsLists) {
-        serviceLists = await loadBrowseServiceListsCached(id);
-        for (const list of serviceLists) {
-          rowState = {
-            ...rowState,
-            [list.id]: rowState[list.id] ?? { loading: true, error: '', results: [] },
-          };
-        }
+      const needsCatalog = !cachedCatalog || !isDiscoverFresh(catalogKey);
+      if (needsCatalog) {
+        const catalog = await loadBrowseServiceCatalogCached(id);
+        serviceLists = listsFromCatalog(catalog);
+        mergeRowState(applyBrowseCatalogToRowState(catalog));
       }
-
-      await Promise.all(serviceLists.map((l) => loadList(l.id)));
     } catch (e) {
       pageError = e instanceof ApiError ? e.message : 'Failed to load service';
-      if (!cachedLists) serviceLists = [];
+      if (!cachedCatalog) serviceLists = [];
     } finally {
       listsLoading = false;
     }

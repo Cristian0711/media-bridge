@@ -1,13 +1,13 @@
 import {
-  fetchBrowseGlobalLists,
-  fetchBrowseList,
-  fetchBrowseServiceLists,
+  fetchBrowseGlobalCatalog,
+  fetchBrowseServiceCatalog,
   fetchBrowseServices,
-  type BrowseListMeta,
+  type BrowseCatalog,
+  type BrowseListRow,
   type BrowsePage,
   type BrowseService,
 } from '$lib/browse/api';
-import { fetchWithCache, getCached, invalidatePrefix, isFresh } from '$lib/data/list-cache';
+import { fetchWithCache, getCached, invalidatePrefix, isFresh, setCached } from '$lib/data/list-cache';
 import { preloadPosterUrls } from '$lib/utils/poster-preload';
 import type { SearchResult } from '$lib/types/search';
 
@@ -15,8 +15,13 @@ import type { SearchResult } from '$lib/types/search';
 export const DISCOVER_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
 
 const SERVICES_KEY = 'discover:services';
-const GLOBAL_LISTS_KEY = 'discover:global-lists';
+const GLOBAL_CATALOG_KEY = 'discover:global-catalog';
 
+export function discoverServiceCatalogCacheKey(serviceId: string): string {
+  return `discover:catalog:${serviceId}`;
+}
+
+/** @deprecated Use discoverServiceCatalogCacheKey; kept for list-page cache keys */
 export function discoverServiceListsCacheKey(serviceId: string): string {
   return `discover:service-lists:${serviceId}`;
 }
@@ -32,8 +37,16 @@ function posterUrlsFromResults(results: SearchResult[]): (string | undefined)[] 
   });
 }
 
-function preloadBrowsePosters(results: SearchResult[]): void {
-  preloadPosterUrls(posterUrlsFromResults(results));
+function cacheCatalogRows(catalog: BrowseCatalog): void {
+  for (const row of catalog.lists) {
+    const page: BrowsePage = {
+      results: row.results,
+      page: row.page,
+      totalPages: row.totalPages,
+    };
+    setCached(discoverListCacheKey(row.id, 1), page);
+    preloadPosterUrls(posterUrlsFromResults(row.results));
+  }
 }
 
 export async function loadBrowseServicesCached(options?: {
@@ -42,57 +55,64 @@ export async function loadBrowseServicesCached(options?: {
   return fetchWithCache(SERVICES_KEY, fetchBrowseServices, options);
 }
 
-export async function loadBrowseGlobalListsCached(options?: {
+export async function loadBrowseGlobalCatalogCached(options?: {
   force?: boolean;
-}): Promise<BrowseListMeta[]> {
-  return fetchWithCache(GLOBAL_LISTS_KEY, fetchBrowseGlobalLists, options);
+}): Promise<BrowseCatalog> {
+  return fetchWithCache(
+    GLOBAL_CATALOG_KEY,
+    async () => {
+      const catalog = await fetchBrowseGlobalCatalog();
+      cacheCatalogRows(catalog);
+      return catalog;
+    },
+    options,
+  );
 }
 
-export async function loadBrowseServiceListsCached(
+export async function loadBrowseServiceCatalogCached(
   serviceId: string,
   options?: { force?: boolean },
-): Promise<BrowseListMeta[]> {
-  const key = discoverServiceListsCacheKey(serviceId);
-  return fetchWithCache(key, () => fetchBrowseServiceLists(serviceId), options);
+): Promise<BrowseCatalog> {
+  const key = discoverServiceCatalogCacheKey(serviceId);
+  return fetchWithCache(
+    key,
+    async () => {
+      const catalog = await fetchBrowseServiceCatalog(serviceId);
+      cacheCatalogRows(catalog);
+      return catalog;
+    },
+    options,
+  );
 }
 
-export async function loadBrowseListCached(
-  listId: string,
-  page = 1,
-  options?: { force?: boolean },
-): Promise<BrowsePage> {
-  const key = discoverListCacheKey(listId, page);
-  return fetchWithCache(key, () => fetchBrowseList(listId, page), options);
+export function applyBrowseCatalogToRowState(
+  catalog: BrowseCatalog,
+): Record<string, { loading: boolean; error: string; results: SearchResult[] }> {
+  const rowState: Record<string, { loading: boolean; error: string; results: SearchResult[] }> =
+    {};
+  for (const row of catalog.lists) {
+    rowState[row.id] = { loading: false, error: '', results: row.results ?? [] };
+  }
+  return rowState;
+}
+
+export function listsFromCatalog(catalog: BrowseCatalog): BrowseListRow[] {
+  return catalog.lists;
 }
 
 export function isDiscoverFresh(key: string): boolean {
   return isFresh(key, DISCOVER_CACHE_STALE_MS);
 }
 
-/** Warm discover data once per session (services, lists, all row page-1). */
+/** Warm discover: one catalog request per service + global. */
 export function prefetchDiscover(): void {
   if (typeof window === 'undefined') return;
 
   const run = async () => {
     try {
       const services = await loadBrowseServicesCached();
-      const globalLists = await loadBrowseGlobalListsCached();
-
-      const listIds: string[] = globalLists.map((l) => l.id);
-
-      for (const svc of services) {
-        const meta = await loadBrowseServiceListsCached(svc.id);
-        for (const list of meta) {
-          listIds.push(list.id);
-        }
-      }
-
-      await Promise.all(
-        [...new Set(listIds)].map(async (id) => {
-          const page = await loadBrowseListCached(id, 1);
-          preloadBrowsePosters(page.results);
-        }),
-      );
+      await loadBrowseGlobalCatalogCached();
+      await Promise.all(services.map((svc) => loadBrowseServiceCatalogCached(svc.id)));
     } catch {
       // best-effort warm
     }

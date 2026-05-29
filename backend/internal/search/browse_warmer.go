@@ -48,54 +48,47 @@ func (w *BrowseWarmer) Start(ctx context.Context) {
 
 func (w *BrowseWarmer) run(ctx context.Context, log *zap.Logger) {
 	start := time.Now()
-	listIDs := allBrowseWarmListIDs()
 
 	if _, err := w.svc.warmBrowseServices(ctx); err != nil {
 		log.Warn("browse warm: services failed", zap.Error(err))
 	}
 
+	tasks := 1 + len(browseServices)
 	sem := make(chan struct{}, browseWarmConcurrent)
 	var wg sync.WaitGroup
 	var okCount, failCount int
 	var countMu sync.Mutex
 
-	for _, listID := range listIDs {
+	warm := func(label string, fn func() error) {
 		wg.Add(1)
-		go func(id string) {
+		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			if err := w.svc.warmBrowseListPage(ctx, id, 1); err != nil {
+			if err := fn(); err != nil {
 				countMu.Lock()
 				failCount++
 				countMu.Unlock()
-				log.Warn("browse warm: list failed", zap.String("list_id", id), zap.Error(err))
+				log.Warn("browse warm: catalog failed", zap.String("scope", label), zap.Error(err))
 				return
 			}
 			countMu.Lock()
 			okCount++
 			countMu.Unlock()
-		}(listID)
+		}()
+	}
+
+	warm("global", func() error { return w.svc.warmGlobalCatalog(ctx) })
+	for _, svc := range browseServices {
+		svc := svc
+		warm(svc.ID, func() error { return w.svc.warmServiceCatalog(ctx, svc.ID) })
 	}
 
 	wg.Wait()
 	log.Info("browse cache warm completed",
-		zap.Int("lists_ok", okCount),
-		zap.Int("lists_failed", failCount),
-		zap.Int("lists_total", len(listIDs)),
+		zap.Int("catalogs_ok", okCount),
+		zap.Int("catalogs_failed", failCount),
+		zap.Int("catalogs_total", tasks),
 		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
-}
-
-// allBrowseWarmListIDs returns every discover row loaded on the home page (page 1).
-func allBrowseWarmListIDs() []string {
-	ids := make([]string, 0, len(browseServices)*len(serviceListKinds)+1)
-	ids = append(ids, "trending-movies", "trending-series")
-	for _, svc := range browseServices {
-		for _, kind := range serviceListKinds {
-			ids = append(ids, svc.ID+":"+kind.Suffix)
-		}
-	}
-	return ids
 }

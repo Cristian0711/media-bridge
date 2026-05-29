@@ -14,7 +14,13 @@ type browseCache struct {
 	services        []BrowseService
 	servicesExpires time.Time
 
-	pages map[string]cachedBrowsePage
+	pages    map[string]cachedBrowsePage
+	catalogs map[string]cachedBrowseCatalog
+}
+
+type cachedBrowseCatalog struct {
+	catalog   BrowseCatalog
+	expiresAt time.Time
 }
 
 type cachedBrowsePage struct {
@@ -24,7 +30,8 @@ type cachedBrowsePage struct {
 
 func newBrowseCache() *browseCache {
 	return &browseCache{
-		pages: make(map[string]cachedBrowsePage),
+		pages:    make(map[string]cachedBrowsePage),
+		catalogs: make(map[string]cachedBrowseCatalog),
 	}
 }
 
@@ -70,6 +77,61 @@ func (c *browseCache) setListPage(listID string, page int, result *SearchPage) {
 		page:      *cloneSearchPage(result),
 		expiresAt: time.Now().Add(browseCacheTTL),
 	}
+}
+
+func (c *browseCache) getCatalog(key string) (*BrowseCatalog, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.catalogs[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return cloneBrowseCatalog(&entry.catalog), true
+}
+
+func (c *browseCache) setCatalog(key string, catalog *BrowseCatalog) {
+	if catalog == nil {
+		return
+	}
+	cloned := cloneBrowseCatalog(catalog)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.catalogs[key] = cachedBrowseCatalog{
+		catalog:   *cloned,
+		expiresAt: time.Now().Add(browseCacheTTL),
+	}
+	// Keep per-list page cache in sync for single-list API consumers.
+	for _, row := range cloned.Lists {
+		c.pages[browsePageCacheKey(row.ID, 1)] = cachedBrowsePage{
+			page: SearchPage{
+				Results:    append([]Result{}, row.Results...),
+				Page:       row.Page,
+				TotalPages: row.TotalPages,
+			},
+			expiresAt: time.Now().Add(browseCacheTTL),
+		}
+	}
+}
+
+func cloneBrowseCatalog(in *BrowseCatalog) *BrowseCatalog {
+	if in == nil {
+		return nil
+	}
+	out := &BrowseCatalog{Lists: make([]BrowseListRow, len(in.Lists))}
+	for i, row := range in.Lists {
+		results := row.Results
+		if results != nil {
+			results = append([]Result{}, results...)
+		}
+		out.Lists[i] = BrowseListRow{
+			ID:         row.ID,
+			Title:      row.Title,
+			Page:       row.Page,
+			TotalPages: row.TotalPages,
+			Results:    results,
+		}
+	}
+	return out
 }
 
 func cloneBrowseServices(in []BrowseService) []BrowseService {
