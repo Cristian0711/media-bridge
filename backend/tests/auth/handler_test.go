@@ -17,7 +17,7 @@ type authSvcStub struct {
 	loginFn         func(ctx context.Context, req auth.LoginRequest) (*auth.LoginResponse, error)
 	registerFn      func(ctx context.Context, req auth.RegisterRequest) (*auth.RegisterResponse, error)
 	validateTokenFn func(ctx context.Context, token string) (*auth.ValidateResponse, error)
-	generateKeyFn   func(ctx context.Context) (*auth.GenerateKeyResponse, error)
+	generateKeyFn   func(ctx context.Context, userID uint) (*auth.GenerateKeyResponse, error)
 	getKeyStatusFn  func(ctx context.Context, value string) (*auth.KeyStatusResponse, error)
 }
 
@@ -30,8 +30,8 @@ func (s *authSvcStub) Register(ctx context.Context, req auth.RegisterRequest) (*
 func (s *authSvcStub) ValidateToken(ctx context.Context, token string) (*auth.ValidateResponse, error) {
 	return s.validateTokenFn(ctx, token)
 }
-func (s *authSvcStub) GenerateKey(ctx context.Context) (*auth.GenerateKeyResponse, error) {
-	return s.generateKeyFn(ctx)
+func (s *authSvcStub) GenerateKey(ctx context.Context, userID uint) (*auth.GenerateKeyResponse, error) {
+	return s.generateKeyFn(ctx, userID)
 }
 func (s *authSvcStub) GetKeyStatus(ctx context.Context, value string) (*auth.KeyStatusResponse, error) {
 	return s.getKeyStatusFn(ctx, value)
@@ -80,7 +80,7 @@ func TestOtherAuthHandlers(t *testing.T) {
 	h := auth.NewHandler(&authSvcStub{
 		loginFn:         func(context.Context, auth.LoginRequest) (*auth.LoginResponse, error) { return &auth.LoginResponse{Token: "t"}, nil },
 		validateTokenFn: func(context.Context, string) (*auth.ValidateResponse, error) { return &auth.ValidateResponse{Valid: true, UserID: 1}, nil },
-		generateKeyFn:   func(context.Context) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{Key: "k"}, nil },
+		generateKeyFn:   func(context.Context, uint) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{Key: "k"}, nil },
 		getKeyStatusFn:  func(context.Context, string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{Value: "k", IsActive: true}, nil },
 		registerFn:      func(context.Context, auth.RegisterRequest) (*auth.RegisterResponse, error) { return &auth.RegisterResponse{ID: 1, Username: "a"}, nil },
 	})
@@ -88,7 +88,13 @@ func TestOtherAuthHandlers(t *testing.T) {
 	r := gin.New()
 	g := r.Group("/api/v1")
 	auth.RegisterPublicRoutes(g, h)
-	auth.RegisterProtectedRoutes(g, h)
+	protected := g.Group("")
+	protected.Use(func(c *gin.Context) {
+		c.Set("user_id", uint(1))
+		c.Set("username", "alice")
+		c.Next()
+	})
+	auth.RegisterProtectedRoutes(protected, h)
 	auth.RegisterValidationRoute(g, h)
 
 	loginBody, _ := json.Marshal(auth.LoginRequest{Username: "alice", Password: "password"})

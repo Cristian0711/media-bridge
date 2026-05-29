@@ -14,6 +14,7 @@ import (
 type usersSvcStub struct {
 	findByIDFn       func(ctx context.Context, id uint) (*users.User, error)
 	findByUsernameFn func(ctx context.Context, username string) (*users.User, error)
+	countFn          func(ctx context.Context) (int64, error)
 	createFn         func(ctx context.Context, input users.CreateInput) (*users.User, error)
 }
 
@@ -22,6 +23,12 @@ func (s *usersSvcStub) FindByID(ctx context.Context, id uint) (*users.User, erro
 }
 func (s *usersSvcStub) FindByUsername(ctx context.Context, username string) (*users.User, error) {
 	return s.findByUsernameFn(ctx, username)
+}
+func (s *usersSvcStub) Count(ctx context.Context) (int64, error) {
+	if s.countFn == nil {
+		return 0, nil
+	}
+	return s.countFn(ctx)
 }
 func (s *usersSvcStub) Create(ctx context.Context, input users.CreateInput) (*users.User, error) {
 	return s.createFn(ctx, input)
@@ -56,7 +63,14 @@ func TestGetUserHandlerStatusCodes(t *testing.T) {
 				},
 			})
 			r := gin.New()
-			users.RegisterRoutes(r.Group("/api/v1"), h)
+			g := r.Group("/api/v1")
+			if tt.name == "ok" {
+				g.Use(func(c *gin.Context) {
+					c.Set("user_id", uint(1))
+					c.Next()
+				})
+			}
+			users.RegisterRoutes(g, h)
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

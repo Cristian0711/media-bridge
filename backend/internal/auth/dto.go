@@ -22,6 +22,7 @@ type RegisterRequest struct {
 type RegisterResponse struct {
 	ID       uint   `json:"id"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 // --- token validation ---
@@ -30,6 +31,7 @@ type ValidateResponse struct {
 	Valid    bool   `json:"valid"`
 	UserID   uint   `json:"user_id,omitempty"`
 	Username string `json:"username,omitempty"`
+	Role     string `json:"role,omitempty"`
 }
 
 // --- key management ---

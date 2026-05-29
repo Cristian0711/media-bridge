@@ -62,6 +62,7 @@ function _M.validate_token(token, request_id)
     local payload = {
         user_id = data.user_id,
         username = data.username or "",
+        role = data.role or "",
     }
     cache:set(token, cjson.encode(payload), CACHE_TTL)
     return true, payload, nil, nil
@@ -70,6 +71,9 @@ end
 function _M.set_user_headers(data)
     ngx.req.set_header("X-User-ID", tostring(data.user_id))
     ngx.req.set_header("X-Username", data.username or "")
+    if data.role and data.role ~= "" then
+        ngx.req.set_header("X-User-Role", data.role)
+    end
 end
 
 -- App routes that require a valid auth_token cookie (or Bearer) before serving the SPA.

@@ -12,6 +12,7 @@ import (
 type usersRepoStub struct {
 	findByIDFn       func(ctx context.Context, id uint) (*users.User, error)
 	findByUsernameFn func(ctx context.Context, username string) (*users.User, error)
+	countFn          func(ctx context.Context) (int64, error)
 	createFn         func(ctx context.Context, user *users.User) error
 }
 
@@ -20,6 +21,12 @@ func (r *usersRepoStub) FindByID(ctx context.Context, id uint) (*users.User, err
 }
 func (r *usersRepoStub) FindByUsername(ctx context.Context, username string) (*users.User, error) {
 	return r.findByUsernameFn(ctx, username)
+}
+func (r *usersRepoStub) Count(ctx context.Context) (int64, error) {
+	if r.countFn == nil {
+		return 0, nil
+	}
+	return r.countFn(ctx)
 }
 func (r *usersRepoStub) Create(ctx context.Context, user *users.User) error {
 	return r.createFn(ctx, user)
@@ -60,7 +67,7 @@ func TestCreatePassesInput(t *testing.T) {
 	if resp == nil || captured == nil {
 		t.Fatal("expected user to be created")
 	}
-	if captured.Username != "alice" || captured.PasswordHash != "hash" {
+	if captured.Username != "alice" || captured.PasswordHash != "hash" || captured.Role != users.RoleUser {
 		t.Fatalf("unexpected user passed to repo: %+v", captured)
 	}
 }

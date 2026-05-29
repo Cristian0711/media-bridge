@@ -12,6 +12,7 @@ var ErrNotFound = errors.New("user not found")
 type Service interface {
 	FindByID(ctx context.Context, id uint) (*User, error)
 	FindByUsername(ctx context.Context, username string) (*User, error)
+	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, input CreateInput) (*User, error)
 }
 
@@ -39,9 +40,18 @@ func (s *service) FindByUsername(ctx context.Context, username string) (*User, e
 	return user, err
 }
 
+func (s *service) Count(ctx context.Context) (int64, error) {
+	return s.repo.Count(ctx)
+}
+
 func (s *service) Create(ctx context.Context, input CreateInput) (*User, error) {
+	role := input.Role
+	if role == "" {
+		role = RoleUser
+	}
 	user := &User{
 		Username:     input.Username,
+		Role:         role,
 		PasswordHash: input.PasswordHash,
 	}
 	return user, s.repo.Create(ctx, user)

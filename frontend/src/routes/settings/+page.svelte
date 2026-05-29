@@ -6,13 +6,20 @@
   import { clearListCache } from '$lib/data/list-cache';
   import { clearPosterPreloadState } from '$lib/utils/poster-preload';
   import { clearToken } from '$lib/auth/session';
+  import { generateRegistrationKey, getCurrentUser } from '$lib/auth/api';
   import { getLatestHealthScan } from '$lib/health/api';
+  import type { CurrentUser } from '$lib/types/auth';
   import { overallStatusClass, overallStatusLabel } from '$lib/health/status';
   import type { ScanLogSummary } from '$lib/types/health-log';
-  import { Activity, ChevronRight, ClipboardList, Loader2 } from 'lucide-svelte';
+  import { Activity, ChevronRight, ClipboardList, Copy, KeyRound, Loader2 } from 'lucide-svelte';
 
   let latest = $state<ScanLogSummary | null>(null);
   let loading = $state(true);
+  let currentUser = $state<CurrentUser | null>(null);
+  let generatedKey = $state<string | null>(null);
+  let generatingKey = $state(false);
+  let keyError = $state<string | null>(null);
+  let copiedKey = $state(false);
 
   async function loadLatest() {
     loading = true;
@@ -26,8 +33,42 @@
     }
   }
 
+  async function loadCurrentUser() {
+    try {
+      currentUser = await getCurrentUser();
+    } catch {
+      currentUser = null;
+    }
+  }
+
+  async function createRegistrationKey() {
+    generatingKey = true;
+    keyError = null;
+    copiedKey = false;
+    try {
+      const resp = await generateRegistrationKey();
+      generatedKey = resp.key;
+    } catch (e) {
+      generatedKey = null;
+      keyError = e instanceof Error ? e.message : 'Failed to generate key';
+    } finally {
+      generatingKey = false;
+    }
+  }
+
+  async function copyRegistrationKey() {
+    if (!generatedKey) return;
+    try {
+      await navigator.clipboard.writeText(generatedKey);
+      copiedKey = true;
+    } catch {
+      copiedKey = false;
+    }
+  }
+
   onMount(() => {
     void loadLatest();
+    void loadCurrentUser();
   });
 
   function logout() {
@@ -88,8 +129,47 @@
     </button>
   </section>
 
+  {#if currentUser?.role === 'admin'}
+    <section class="space-y-3 border-t border-white/10 pt-6">
+      <h2 class="text-base font-semibold text-white">Invite keys</h2>
+      <p class="text-sm text-muted-foreground">
+        Generate a one-time registration key for a new user. Each key works once.
+      </p>
+      <Button variant="outline" disabled={generatingKey} onclick={createRegistrationKey}>
+        {#if generatingKey}
+          <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+          Generating…
+        {:else}
+          <KeyRound class="mr-2 h-4 w-4" />
+          Generate registration key
+        {/if}
+      </Button>
+      {#if keyError}
+        <p class="text-sm text-red-400">{keyError}</p>
+      {/if}
+      {#if generatedKey}
+        <div class="rounded-xl border border-white/10 bg-card/60 px-4 py-3">
+          <p class="text-xs text-white/45">New registration key</p>
+          <p class="mt-1 break-all font-mono text-sm text-white">{generatedKey}</p>
+          <Button variant="ghost" size="sm" class="mt-2" onclick={copyRegistrationKey}>
+            <Copy class="mr-2 h-4 w-4" />
+            {copiedKey ? 'Copied' : 'Copy key'}
+          </Button>
+        </div>
+      {/if}
+    </section>
+  {/if}
+
   <section class="space-y-3 border-t border-white/10 pt-6">
     <p class="text-sm text-muted-foreground">Account</p>
+    {#if currentUser}
+      <p class="text-sm text-white">
+        Signed in as <span class="font-medium">{currentUser.username}</span>
+        {#if currentUser.role === 'admin'}
+          <span class="text-white/45"> · admin</span>
+        {/if}
+      </p>
+    {/if}
     <Button variant="outline" onclick={logout}>Sign out</Button>
   </section>
 </div>

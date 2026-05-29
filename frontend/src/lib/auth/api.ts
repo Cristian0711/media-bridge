@@ -1,5 +1,7 @@
 import { callApi } from '$lib/api/client';
 import type {
+  CurrentUser,
+  GenerateKeyResponse,
   LoginRequest,
   LoginResponse,
   RegisterRequest,
@@ -28,4 +30,12 @@ export async function register(req: RegisterRequest): Promise<RegisterResponse> 
 
 export async function validateToken(): Promise<ValidateResponse> {
   return callApi<ValidateResponse>('/auth/validate', { method: 'GET' });
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  return callApi<CurrentUser>('/users/me', { method: 'GET' });
+}
+
+export async function generateRegistrationKey(): Promise<GenerateKeyResponse> {
+  return callApi<GenerateKeyResponse>('/keys/generate', { method: 'POST' });
 }

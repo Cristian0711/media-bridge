@@ -16,13 +16,14 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUserAlreadyExists  = errors.New("user already exists")
 	ErrKeyInvalid         = errors.New("key is invalid or already used")
+	ErrForbidden          = errors.New("forbidden")
 )
 
 type Service interface {
 	Login(ctx context.Context, req LoginRequest) (*LoginResponse, error)
 	Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error)
 	ValidateToken(ctx context.Context, token string) (*ValidateResponse, error)
-	GenerateKey(ctx context.Context) (*GenerateKeyResponse, error)
+	GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error)
 	GetKeyStatus(ctx context.Context, value string) (*KeyStatusResponse, error)
 }
 
@@ -44,7 +45,7 @@ func (s *service) Login(ctx context.Context, req LoginRequest) (*LoginResponse, 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
-	token, err := s.jwt.Generate(user.ID, user.Username)
+	token, err := s.jwt.Generate(user.ID, user.Username, user.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +80,19 @@ func (s *service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		return nil, err
 	}
 
+	role := users.RoleUser
+	count, err := s.userSvc.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		role = users.RoleAdmin
+	}
+
 	user, err := s.userSvc.Create(ctx, users.CreateInput{
 		Username:     username,
 		PasswordHash: string(hash),
+		Role:         role,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -96,7 +107,7 @@ func (s *service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		return nil, err
 	}
 
-	return &RegisterResponse{ID: user.ID, Username: user.Username}, nil
+	return &RegisterResponse{ID: user.ID, Username: user.Username, Role: user.Role}, nil
 }
 
 func (s *service) ValidateToken(ctx context.Context, token string) (*ValidateResponse, error) {
@@ -105,14 +116,31 @@ func (s *service) ValidateToken(ctx context.Context, token string) (*ValidateRes
 		return &ValidateResponse{Valid: false}, nil
 	}
 
+	role := claims.Role
+	if role == "" {
+		user, err := s.userSvc.FindByID(ctx, claims.UserID)
+		if err != nil {
+			return &ValidateResponse{Valid: false}, nil
+		}
+		role = user.Role
+	}
+
 	return &ValidateResponse{
 		Valid:    true,
 		UserID:   claims.UserID,
 		Username: claims.Username,
+		Role:     role,
 	}, nil
 }
 
-func (s *service) GenerateKey(ctx context.Context) (*GenerateKeyResponse, error) {
+func (s *service) GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error) {
+	user, err := s.userSvc.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !users.IsAdmin(user.Role) {
+		return nil, ErrForbidden
+	}
 	key, err := s.repo.CreateKey(ctx, uuid.New().String())
 	if err != nil {
 		return nil, err
