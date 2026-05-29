@@ -10,7 +10,10 @@
   import { clearSearchInputFocused } from '$lib/navigation/search-ui.svelte';
   import { isAuthenticated } from '$lib/auth/session';
   import { connectAppEvents } from '$lib/sse/client';
+  import { sseConnectionStatus } from '$lib/sse/connection-status';
+  import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
   import ToastHost from '$lib/toast/toast-host.svelte';
+  import { get } from 'svelte/store';
 
   let { children } = $props();
 
@@ -67,6 +70,32 @@
 
     const conn = connectAppEvents();
     return () => conn.close();
+  });
+
+  // iOS PWA: returning from background may leave lists stale before SSE reconnect completes.
+  $effect(() => {
+    if (!browser || !isAuthenticated()) return;
+
+    const MIN_AWAY_MS = 3000;
+    let hiddenAt = 0;
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (!hiddenAt) return;
+      const away = Date.now() - hiddenAt;
+      hiddenAt = 0;
+      if (away < MIN_AWAY_MS) return;
+
+      if (get(sseConnectionStatus) === 'connected') {
+        syncListsAfterSseReconnect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
   });
 </script>
 

@@ -2,6 +2,7 @@ import { getToken } from '$lib/auth/session';
 import { setSseConnectionStatus } from '$lib/sse/connection-status';
 import { dispatchAppSseEvent } from '$lib/sse/dispatch';
 import { parseSseChunk } from '$lib/sse/parse';
+import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
 
 const RECONNECT_MS_MIN = 2000;
 const RECONNECT_MS_MAX = 30000;
@@ -23,6 +24,8 @@ export function connectAppEvents(): AppSseConnection {
   let abort: AbortController | null = null;
   let reconnectDelay = RECONNECT_MS_MIN;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True after the first successful stream in this session (skip sync on cold connect). */
+  let hadSuccessfulConnection = false;
 
   const scheduleReconnect = () => {
     if (closed) return;
@@ -59,6 +62,10 @@ export function connectAppEvents(): AppSseConnection {
 
       reconnectDelay = RECONNECT_MS_MIN;
       setSseConnectionStatus('connected');
+      if (hadSuccessfulConnection) {
+        syncListsAfterSseReconnect();
+      }
+      hadSuccessfulConnection = true;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -95,6 +102,7 @@ export function connectAppEvents(): AppSseConnection {
   return {
     close: () => {
       closed = true;
+      hadSuccessfulConnection = false;
       setSseConnectionStatus('disconnected');
       if (reconnectTimer) clearTimeout(reconnectTimer);
       abort?.abort();
