@@ -4,14 +4,14 @@ go 1.25.10
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
-	github.com/autobrr/go-qbittorrent v1.15.0
+	github.com/autobrr/go-qbittorrent v1.16.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/j-muller/go-torrent-parser v0.0.0-20211014072822-db02b4099054
-	github.com/jackc/pgx/v5 v5.6.0
+	github.com/jackc/pgx/v5 v5.9.2
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
@@ -20,7 +20,6 @@ require (
 require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/autobrr/autobrr v1.77.0 // indirect
 	github.com/avast/retry-go v3.0.0+incompatible // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
