@@ -1,0 +1,8 @@
+.git
+**/.svelte-kit
+**/node_modules
+frontend/build
+backend/tmp
+media-search-ms
+design
+*.zip
