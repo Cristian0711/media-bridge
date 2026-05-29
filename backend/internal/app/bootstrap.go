@@ -192,5 +192,35 @@ func migrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := dropMediaSoftDelete(db); err != nil {
+		return err
+	}
+
 	return db.Exec("CREATE INDEX IF NOT EXISTS idx_media_name_trgm ON media USING gin (name gin_trgm_ops)").Error
+}
+
+// dropMediaSoftDelete converts media and show_entries from soft-delete to hard
+// delete. Any previously soft-deleted rows are purged first so that dropping the
+// column cannot resurrect them, then the deleted_at column (and its index) is
+// removed. Idempotent: a no-op once the column is gone.
+func dropMediaSoftDelete(db *gorm.DB) error {
+	targets := []struct {
+		model any
+		table string
+	}{
+		{&media.Media{}, "media"},
+		{&media.ShowEntry{}, "show_entries"},
+	}
+	for _, t := range targets {
+		if !db.Migrator().HasColumn(t.model, "deleted_at") {
+			continue
+		}
+		if err := db.Exec("DELETE FROM " + t.table + " WHERE deleted_at IS NOT NULL").Error; err != nil {
+			return err
+		}
+		if err := db.Migrator().DropColumn(t.model, "deleted_at"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -173,7 +173,6 @@ func loadMediaTorrentRows(ctx context.Context, db *gorm.DB) ([]MediaTorrentRow, 
 		FROM media m
 		LEFT JOIN movies mov ON m.movie_id = mov.id
 		LEFT JOIN show_entries se ON m.show_entry_id = se.id
-		WHERE m.deleted_at IS NULL
 	`
 	var rows []MediaTorrentRow
 	err := db.WithContext(ctx).Raw(q).Scan(&rows).Error

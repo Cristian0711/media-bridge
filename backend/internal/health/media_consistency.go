@@ -21,7 +21,7 @@ type MediaEntryIssue struct {
 	Message     string `json:"message"`
 }
 
-// MediaEntryRow is the minimal live-media projection used for correlation.
+// MediaEntryRow is the minimal media projection used for correlation.
 type MediaEntryRow struct {
 	ID          uint   `gorm:"column:id"`
 	Type        string `gorm:"column:type"`
@@ -36,8 +36,8 @@ type MediaConsistencyResult struct {
 	MovieCount        int
 	ShowEntryCount    int
 	MediaIssues       []MediaEntryIssue // media pointing at a missing/dangling/duplicate/unknown link
-	OrphanMovies      []MediaEntryIssue // movie rows not referenced by any live media
-	OrphanShowEntries []MediaEntryIssue // live show entries not referenced by any live media
+	OrphanMovies      []MediaEntryIssue // movie rows not referenced by any media
+	OrphanShowEntries []MediaEntryIssue // show entries not referenced by any media
 }
 
 // CountMatches reports whether every media maps 1:1 to a catalog row, i.e.
@@ -63,7 +63,7 @@ func (s *Service) checkMediaConsistency(ctx context.Context) Check {
 	if err != nil {
 		return failedCheck(check, start, err)
 	}
-	showEntryIDs, err := loadIDSet(ctx, s.db, "SELECT id FROM show_entries WHERE deleted_at IS NULL")
+	showEntryIDs, err := loadIDSet(ctx, s.db, "SELECT id FROM show_entries")
 	if err != nil {
 		return failedCheck(check, start, err)
 	}
@@ -117,9 +117,9 @@ func (s *Service) checkMediaConsistency(ctx context.Context) Check {
 }
 
 // CorrelateMediaEntries is the pure core of the consistency check. It verifies
-// that every live media row points at exactly one existing catalog row matching
-// its type, and that every catalog row (movies, live show entries) is referenced
-// by exactly one live media row.
+// that every media row points at exactly one existing catalog row matching its
+// type, and that every catalog row (movies, show entries) is referenced by
+// exactly one media row.
 func CorrelateMediaEntries(
 	mediaRows []MediaEntryRow,
 	movieIDs map[uint]struct{},
@@ -152,7 +152,7 @@ func CorrelateMediaEntries(
 		if _, ok := refMovies[id]; !ok {
 			res.OrphanMovies = appendMediaEntryIssue(res.OrphanMovies, MediaEntryIssue{
 				Kind: "orphan_movie", MovieID: id,
-				Message: "movie is not referenced by any live media row",
+				Message: "movie is not referenced by any media row",
 			})
 		}
 	}
@@ -160,7 +160,7 @@ func CorrelateMediaEntries(
 		if _, ok := refShowEntries[id]; !ok {
 			res.OrphanShowEntries = appendMediaEntryIssue(res.OrphanShowEntries, MediaEntryIssue{
 				Kind: "orphan_show_entry", ShowEntryID: id,
-				Message: "show entry is not referenced by any live media row",
+				Message: "show entry is not referenced by any media row",
 			})
 		}
 	}
@@ -219,7 +219,6 @@ func loadMediaEntryRows(ctx context.Context, db *gorm.DB) ([]MediaEntryRow, erro
 	const q = `
 		SELECT id, type, movie_id, show_entry_id
 		FROM media
-		WHERE deleted_at IS NULL
 	`
 	var rows []MediaEntryRow
 	err := db.WithContext(ctx).Raw(q).Scan(&rows).Error

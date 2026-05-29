@@ -3,8 +3,6 @@ package media
 import (
 	"strconv"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // MediaType represents the type of media entry.
@@ -19,19 +17,18 @@ const (
 
 // Media represents a media entry in the system (SSOT).
 type Media struct {
-	ID          uint           `gorm:"primaryKey" json:"id"`
-	Type        MediaType      `gorm:"type:varchar(20);not null;index" json:"type"`
-	Name        string         `gorm:"not null;index" json:"name"`
-	Path        string         `gorm:"type:text;not null" json:"path"`
-	LibraryPath string         `gorm:"type:text" json:"library_path,omitempty"`
-	Indexer     string         `gorm:"type:varchar(100);not null;index" json:"indexer"`
-	Quality     string         `gorm:"type:varchar(100);not null;index" json:"quality"`
-	SizeBytes   int64          `gorm:"default:0" json:"size_bytes,omitempty"`
-	UserID      uint           `gorm:"not null;index" json:"user_id"`
-	Username    string         `gorm:"type:varchar(100);not null;index" json:"username"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Type        MediaType `gorm:"type:varchar(20);not null;index" json:"type"`
+	Name        string    `gorm:"not null;index" json:"name"`
+	Path        string    `gorm:"type:text;not null" json:"path"`
+	LibraryPath string    `gorm:"type:text" json:"library_path,omitempty"`
+	Indexer     string    `gorm:"type:varchar(100);not null;index" json:"indexer"`
+	Quality     string    `gorm:"type:varchar(100);not null;index" json:"quality"`
+	SizeBytes   int64     `gorm:"default:0" json:"size_bytes,omitempty"`
+	UserID      uint      `gorm:"not null;index" json:"user_id"`
+	Username    string    `gorm:"type:varchar(100);not null;index" json:"username"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	MovieID     *uint      `json:"movie_id,omitempty"`
 	ShowEntryID *uint      `json:"show_entry_id,omitempty"`
@@ -81,9 +78,8 @@ type ShowEntry struct {
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // GetMediaIdentifier returns a unique identifier for the media.

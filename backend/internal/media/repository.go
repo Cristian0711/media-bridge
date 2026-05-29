@@ -305,7 +305,7 @@ func (r *repository) FindShowEntryIDsByShowAndScope(ctx context.Context, showID 
 
 func (r *repository) DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
+		if err := tx.Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
 			return err
 		}
 		var count int64
@@ -330,7 +330,7 @@ func (r *repository) DeleteShowMediaCascade(ctx context.Context, mediaID, showEn
 			Scan(&showID).Error; err != nil {
 			return err
 		}
-		if err := tx.Unscoped().Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
+		if err := tx.Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
 			return err
 		}
 		var entryCount int64
@@ -340,7 +340,7 @@ func (r *repository) DeleteShowMediaCascade(ctx context.Context, mediaID, showEn
 		if entryCount > 0 {
 			return nil
 		}
-		if err := tx.Unscoped().Where("id = ?", showEntryID).Delete(&ShowEntry{}).Error; err != nil {
+		if err := tx.Where("id = ?", showEntryID).Delete(&ShowEntry{}).Error; err != nil {
 			return err
 		}
 		if showID == 0 {
