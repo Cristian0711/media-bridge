@@ -91,7 +91,7 @@ func (w *BrowseWarmer) run(ctx context.Context, log *zap.Logger) {
 // allBrowseWarmListIDs returns every discover row loaded on the home page (page 1).
 func allBrowseWarmListIDs() []string {
 	ids := make([]string, 0, len(browseServices)*len(serviceListKinds)+1)
-	ids = append(ids, "trending")
+	ids = append(ids, "trending-movies", "trending-series")
 	for _, svc := range browseServices {
 		for _, kind := range serviceListKinds {
 			ids = append(ids, svc.ID+":"+kind.Suffix)

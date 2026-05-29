@@ -254,6 +254,30 @@ func (c *tmdbClient) trendingAllWeek(ctx context.Context, page int) (*tmdbPagedR
 	return &out, nil
 }
 
+func (c *tmdbClient) trendingMoviesWeek(ctx context.Context, page int) (*tmdbMovieListResponse, error) {
+	if page < 1 {
+		page = 1
+	}
+	var out tmdbMovieListResponse
+	path := fmt.Sprintf("/trending/movie/week?language=en-US&page=%d", page)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *tmdbClient) trendingTVWeek(ctx context.Context, page int) (*tmdbTVListResponse, error) {
+	if page < 1 {
+		page = 1
+	}
+	var out tmdbTVListResponse
+	path := fmt.Sprintf("/trending/tv/week?language=en-US&page=%d", page)
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *tmdbClient) moviePopular(ctx context.Context, page int) (*tmdbMovieListResponse, error) {
 	if page < 1 {
 		page = 1

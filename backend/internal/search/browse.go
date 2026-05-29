@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -35,12 +34,18 @@ type browseListKind struct {
 }
 
 var serviceListKinds = []browseListKind{
+	// Movies first — genre rows are movies-only (provider browse skews toward series).
 	{Suffix: "movies", Title: "Popular Movies", MoviesOnly: true},
+	{Suffix: "drama-movies", Title: "Drama", MoviesOnly: true, MovieGenre: 18},
+	{Suffix: "action-movies", Title: "Action", MoviesOnly: true, MovieGenre: 28},
+	{Suffix: "comedy-movies", Title: "Comedy", MoviesOnly: true, MovieGenre: 35},
+	{Suffix: "sci-fi-movies", Title: "Sci-Fi", MoviesOnly: true, MovieGenre: 878},
+	// Series rows after movies.
 	{Suffix: "series", Title: "Popular Series", TVOnly: true},
-	{Suffix: "drama", Title: "Drama", MovieGenre: 18, TVGenre: 18},
-	{Suffix: "action", Title: "Action", MovieGenre: 28, TVGenre: 10759},
-	{Suffix: "comedy", Title: "Comedy", MovieGenre: 35, TVGenre: 35},
-	{Suffix: "sci-fi", Title: "Sci-Fi", MovieGenre: 878, TVGenre: 10765},
+	{Suffix: "drama-series", Title: "Drama Series", TVOnly: true, TVGenre: 18},
+	{Suffix: "action-series", Title: "Action Series", TVOnly: true, TVGenre: 10759},
+	{Suffix: "comedy-series", Title: "Comedy Series", TVOnly: true, TVGenre: 35},
+	{Suffix: "sci-fi-series", Title: "Sci-Fi Series", TVOnly: true, TVGenre: 10765},
 }
 
 // BrowseService is a streaming provider shown on the home page.
@@ -136,10 +141,11 @@ func (s *Service) BrowseServiceLists(serviceID string) ([]BrowseListMeta, error)
 	return out, nil
 }
 
-// BrowseGlobalLists returns non-service rows (e.g. trending).
+// BrowseGlobalLists returns non-service rows (movies first, then series).
 func (s *Service) BrowseGlobalLists() []BrowseListMeta {
 	return []BrowseListMeta{
-		{ID: "trending", Title: "Trending This Week"},
+		{ID: "trending-movies", Title: "Trending Movies"},
+		{ID: "trending-series", Title: "Trending Series"},
 	}
 }
 
@@ -185,6 +191,10 @@ func (s *Service) fetchBrowse(ctx context.Context, listID string, page int) (*Se
 	switch listID {
 	case "trending":
 		return s.browseTrending(ctx, page)
+	case "trending-movies":
+		return s.browseTrendingMovies(ctx, page)
+	case "trending-series":
+		return s.browseTrendingSeries(ctx, page)
 	default:
 		return nil, fmt.Errorf("unknown browse list: %s", listID)
 	}
@@ -237,29 +247,13 @@ func (s *Service) browseServiceKind(ctx context.Context, serviceID, kindSuffix s
 	}
 
 	if kind.MoviesOnly {
-		return s.browseProviderMovies(ctx, providerID, 0, page)
+		return s.browseProviderMovies(ctx, providerID, kind.MovieGenre, page)
 	}
 	if kind.TVOnly {
-		return s.browseProviderTV(ctx, providerID, 0, page)
+		return s.browseProviderTV(ctx, providerID, kind.TVGenre, page)
 	}
 
-	movies, err := s.tmdb.discoverMoviesByProvider(ctx, providerID, kind.MovieGenre, page)
-	if err != nil {
-		return nil, err
-	}
-	shows, err := s.tmdb.discoverTVByProvider(ctx, providerID, kind.TVGenre, page)
-	if err != nil {
-		return nil, err
-	}
-	merged := mergeResultsByPopularity(
-		tmdbMoviesToResults(movies.Results),
-		tmdbTVShowsToResults(shows.Results),
-	)
-	totalPages := movies.TotalPages
-	if shows.TotalPages > totalPages {
-		totalPages = shows.TotalPages
-	}
-	return &SearchPage{Results: merged, Page: page, TotalPages: totalPages}, nil
+	return nil, fmt.Errorf("invalid list kind: %s", kindSuffix)
 }
 
 func (s *Service) browseProviderMovies(ctx context.Context, providerID, genreID, page int) (*SearchPage, error) {
@@ -298,10 +292,26 @@ func (s *Service) browseTrending(ctx context.Context, page int) (*SearchPage, er
 	}, nil
 }
 
-func mergeResultsByPopularity(a, b []Result) []Result {
-	merged := append(append([]Result{}, a...), b...)
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Score > merged[j].Score
-	})
-	return merged
+func (s *Service) browseTrendingMovies(ctx context.Context, page int) (*SearchPage, error) {
+	resp, err := s.tmdb.trendingMoviesWeek(ctx, page)
+	if err != nil {
+		return nil, err
+	}
+	return &SearchPage{
+		Results:    tmdbMoviesToResults(resp.Results),
+		Page:       resp.Page,
+		TotalPages: resp.TotalPages,
+	}, nil
+}
+
+func (s *Service) browseTrendingSeries(ctx context.Context, page int) (*SearchPage, error) {
+	resp, err := s.tmdb.trendingTVWeek(ctx, page)
+	if err != nil {
+		return nil, err
+	}
+	return &SearchPage{
+		Results:    tmdbTVShowsToResults(resp.Results),
+		Page:       resp.Page,
+		TotalPages: resp.TotalPages,
+	}, nil
 }

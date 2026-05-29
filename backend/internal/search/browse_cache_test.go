@@ -32,15 +32,15 @@ func TestBrowseCacheListPage(t *testing.T) {
 		Page:       1,
 		TotalPages: 5,
 	}
-	c.setListPage("trending", 1, page)
+	c.setListPage("trending-movies", 1, page)
 
-	got, ok := c.getListPage("trending", 1)
+	got, ok := c.getListPage("trending-movies", 1)
 	if !ok || got.Page != 1 || len(got.Results) != 1 {
 		t.Fatalf("unexpected cache hit: %+v ok=%v", got, ok)
 	}
 
 	got.Results[0].Score = 99
-	if cached, _ := c.getListPage("trending", 1); cached.Results[0].Score == 99 {
+	if cached, _ := c.getListPage("trending-movies", 1); cached.Results[0].Score == 99 {
 		t.Fatal("expected cached copy isolation")
 	}
 }
@@ -48,8 +48,9 @@ func TestBrowseCacheListPage(t *testing.T) {
 func TestAllBrowseWarmListIDs(t *testing.T) {
 	t.Parallel()
 	ids := allBrowseWarmListIDs()
-	if len(ids) != 1+len(browseServices)*len(serviceListKinds) {
-		t.Fatalf("unexpected warm list count: %d", len(ids))
+	want := 2 + len(browseServices)*len(serviceListKinds) // trending-movies + trending-series + per service
+	if len(ids) != want {
+		t.Fatalf("unexpected warm list count: %d, want %d", len(ids), want)
 	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
@@ -58,7 +59,7 @@ func TestAllBrowseWarmListIDs(t *testing.T) {
 		}
 		seen[id] = true
 	}
-	if !seen["trending"] || !seen["netflix:movies"] {
+	if !seen["trending-movies"] || !seen["trending-series"] || !seen["netflix:movies"] || !seen["netflix:drama-movies"] {
 		t.Fatalf("missing expected ids: %v", ids)
 	}
 }

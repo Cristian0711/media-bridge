@@ -47,6 +47,17 @@
     services.find((s) => s.id === selectedServiceId)?.name ?? '',
   );
 
+  /** List kind after the colon (e.g. netflix:drama-series → drama-series). */
+  function listKind(id: string): string {
+    const i = id.indexOf(':');
+    return i >= 0 ? id.slice(i + 1) : id;
+  }
+
+  function isSeriesList(id: string): boolean {
+    const kind = listKind(id);
+    return kind === 'series' || kind.endsWith('-series') || kind === 'trending-series';
+  }
+
   onMount(() => {
     preloadTabRoutes();
     prefetchTabLists();
@@ -229,7 +240,14 @@
         Loading {services.find((s) => s.id === selectedServiceId)?.name ?? 'service'}…
       </p>
     {:else}
-      {#each serviceLists as list (list.id)}
+      {#each serviceLists as list, i (list.id)}
+        {#if i === 0 && !isSeriesList(list.id)}
+          <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-white/45">Movies</h2>
+        {:else if isSeriesList(list.id) && !isSeriesList(serviceLists[i - 1]?.id ?? '')}
+          <h2 class="mb-2 mt-1 text-xs font-semibold uppercase tracking-wide text-white/45">
+            Series
+          </h2>
+        {/if}
         {@const state = rowState[list.id]}
         <BrowseRow
           title="{list.title}{selectedServiceName ? ` on ${selectedServiceName}` : ''}"
@@ -244,7 +262,14 @@
 
     {#if globalLists.length > 0}
       <div class="mt-2 border-t border-border/30 pt-4">
-        {#each globalLists as list (list.id)}
+        {#each globalLists as list, i (list.id)}
+          {#if i === 0 && !isSeriesList(list.id)}
+            <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-white/45">Movies</h2>
+          {:else if isSeriesList(list.id) && !isSeriesList(globalLists[i - 1]?.id ?? '')}
+            <h2 class="mb-2 mt-1 text-xs font-semibold uppercase tracking-wide text-white/45">
+              Series
+            </h2>
+          {/if}
           {@const state = rowState[list.id]}
           <BrowseRow
             title={list.title}
