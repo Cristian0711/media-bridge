@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/hardlink"
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
+	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/Cristian0711/media-bridge/backend/shared/queueutil"
 	"go.uber.org/zap"
 )
 
@@ -70,17 +70,8 @@ func NewProcessor(
 	requestLinker RequestLinker,
 	requestStatus RequestStatusUpdater,
 ) (*Processor, error) {
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	q, err := queueutil.NewQueue[QueuePayload](databaseURL, pipeline.QueueDownload, processingqueue.StandardQueueOptions()...)
 	if err != nil {
-		return nil, err
-	}
-	q, err := processingqueue.New[QueuePayload](pool, "download_processing_queue",
-		processingqueue.StandardQueueOptions()...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := q.EnsureTable(context.Background()); err != nil {
 		return nil, err
 	}
 	return &Processor{
@@ -104,21 +95,19 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 		if err != nil {
 			return err
 		}
-		switch req.Type {
-		case "movie_download", "show_download":
-			err := p.processDownload(ctx, log, job, req)
-			if err == nil {
-				return nil
-			}
-			permanent := errors.Is(err, processingqueue.ErrPermanentFailure)
-			finalAttempt := job.Attempts >= job.MaxAttempts
-			if permanent || finalAttempt {
-				p.markRequestFailed(ctx, log, job.Payload.RequestEntryID)
-			}
-			return err
-		default:
+		if !pipeline.IsDownloadType(req.Type) {
 			return fmt.Errorf("unsupported request type for download queue: %s", req.Type)
 		}
+		err = p.processDownload(ctx, log, job, req)
+		if err == nil {
+			return nil
+		}
+		permanent := errors.Is(err, processingqueue.ErrPermanentFailure)
+		finalAttempt := job.Attempts >= job.MaxAttempts
+		if permanent || finalAttempt {
+			p.markRequestFailed(ctx, log, job.Payload.RequestEntryID)
+		}
+		return err
 	}
 	for i := 1; i <= workers; i++ {
 		workerID := fmt.Sprintf("download-worker-%d", i)
@@ -128,22 +117,10 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 }
 
 func (p *Processor) markRequestFailed(ctx context.Context, log *zap.Logger, requestEntryID uint) {
-	if p.requestStatus == nil || requestEntryID == 0 {
+	if p.requestStatus == nil {
 		return
 	}
-	updated, err := p.requestStatus.MarkFailedIfInFlight(ctx, requestEntryID)
-	if err != nil {
-		log.Warn("failed to mark download request failed",
-			zap.Uint("request_entry_id", requestEntryID),
-			zap.Error(err),
-		)
-		return
-	}
-	if updated {
-		log.Info("marked download request failed",
-			zap.Uint("request_entry_id", requestEntryID),
-		)
-	}
+	queueutil.MarkRequest(ctx, log, requestEntryID, "download request failed", p.requestStatus.MarkFailedIfInFlight)
 }
 
 // processDownload is idempotent: retries reuse request.media_id or an existing
@@ -154,7 +131,137 @@ func (p *Processor) processDownload(
 	job *processingqueue.Job[QueuePayload],
 	req *RequestDetails,
 ) error {
-	input := media.CreateFromRequestInput{
+	requestEntryID := job.Payload.RequestEntryID
+
+	mediaID, err := p.resolveOrCreateMedia(ctx, log, requestEntryID, req)
+	if err != nil {
+		return err
+	}
+	if err := p.linkRequestToMedia(ctx, requestEntryID, mediaID); err != nil {
+		return err
+	}
+	if err := p.ensureHardlinkEnqueued(ctx, log, mediaID, requestEntryID, req); err != nil {
+		return err
+	}
+
+	p.markDownloading(ctx, log, requestEntryID)
+
+	log.Info("download job processed",
+		zap.String("job_id", job.ID.String()),
+		zap.Uint("request_entry_id", requestEntryID),
+		zap.String("request_id", job.Payload.RequestID),
+		zap.String("type", req.Type),
+		zap.Uint("media_id", mediaID),
+		zap.Uint("user_id", job.Payload.UserID),
+		zap.String("username", job.Payload.Username),
+	)
+	return nil
+}
+
+// resolveOrCreateMedia returns the media row id this download should link to,
+// reusing request.media_id or an existing row for the same scope, otherwise
+// adding the torrent and creating a new media row. A linked-but-missing media
+// row is a permanent failure.
+func (p *Processor) resolveOrCreateMedia(
+	ctx context.Context,
+	log *zap.Logger,
+	requestEntryID uint,
+	req *RequestDetails,
+) (uint, error) {
+	input := requestToMediaInput(req)
+
+	mediaID := req.MediaID
+	if mediaID == 0 {
+		existing, err := p.mediaService.FindExistingDownloadMediaID(ctx, input)
+		if err != nil {
+			return 0, err
+		}
+		if existing != 0 {
+			mediaID = existing
+			log.Info("reusing existing media row for download retry",
+				zap.Uint("request_entry_id", requestEntryID),
+				zap.Uint("media_id", mediaID),
+			)
+		}
+	}
+
+	if mediaID == 0 {
+		result, err := p.downloadService.Add(ctx, *req)
+		if err != nil {
+			return 0, err
+		}
+		if result != nil {
+			input.SavePath = result.SavePath
+			input.TorrentHash = result.TorrentHash
+			input.SizeBytes = result.SizeBytes
+			input.StartedAt = result.StartedAt
+			input.CompletedAt = result.CompletedAt
+		}
+		mediaID, err = p.mediaService.CreateFromRequest(ctx, input)
+		if err != nil {
+			return 0, err
+		}
+		log.Info("created media row for download",
+			zap.Uint("request_entry_id", requestEntryID),
+			zap.Uint("media_id", mediaID),
+		)
+		return mediaID, nil
+	}
+
+	if _, err := p.mediaService.GetMediaByID(ctx, mediaID); err != nil {
+		if errors.Is(err, media.ErrMediaNotFound) {
+			return 0, fmt.Errorf("media %d not found for request %d: %w", mediaID, requestEntryID, processingqueue.ErrPermanentFailure)
+		}
+		return 0, err
+	}
+	log.Info("download job resuming with linked media (skipping torrent add and media create)",
+		zap.Uint("request_entry_id", requestEntryID),
+		zap.Uint("media_id", mediaID),
+	)
+	return mediaID, nil
+}
+
+// linkRequestToMedia writes the media id back onto the request row so a later
+// remove flow can find the request via the media id.
+func (p *Processor) linkRequestToMedia(ctx context.Context, requestEntryID, mediaID uint) error {
+	if p.requestLinker == nil {
+		return nil
+	}
+	if err := p.requestLinker.UpdateMediaID(ctx, requestEntryID, mediaID); err != nil {
+		return fmt.Errorf("link request %d to media %d: %w", requestEntryID, mediaID, err)
+	}
+	return nil
+}
+
+// ensureHardlinkEnqueued enqueues a hardlink job for the media row unless one is
+// already in flight (idempotent across download retries).
+func (p *Processor) ensureHardlinkEnqueued(
+	ctx context.Context,
+	log *zap.Logger,
+	mediaID, requestEntryID uint,
+	req *RequestDetails,
+) error {
+	active, err := p.hardlinkProcessor.HasActiveJobForMediaID(ctx, mediaID)
+	if err != nil {
+		return err
+	}
+	if active {
+		log.Info("hardlink job already active for media; skipping enqueue",
+			zap.Uint("media_id", mediaID),
+			zap.Uint("request_entry_id", requestEntryID),
+		)
+		return nil
+	}
+	return p.hardlinkProcessor.Enqueue(ctx, hardlink.QueuePayload{
+		MediaID:        mediaID,
+		RequestEntryID: requestEntryID,
+		UserID:         req.UserID,
+		Username:       req.Username,
+	})
+}
+
+func requestToMediaInput(req *RequestDetails) media.CreateFromRequestInput {
+	return media.CreateFromRequestInput{
 		Type:        req.Type,
 		Name:        req.Name,
 		IMDBID:      req.IMDBID,
@@ -171,109 +278,13 @@ func (p *Processor) processDownload(
 		Username:    req.Username,
 		RequestID:   req.RequestID,
 	}
-
-	mediaID := req.MediaID
-	if mediaID == 0 {
-		existing, err := p.mediaService.FindExistingDownloadMediaID(ctx, input)
-		if err != nil {
-			return err
-		}
-		if existing != 0 {
-			mediaID = existing
-			log.Info("reusing existing media row for download retry",
-				zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-				zap.Uint("media_id", mediaID),
-			)
-		}
-	}
-
-	if mediaID == 0 {
-		result, err := p.downloadService.Add(ctx, *req)
-		if err != nil {
-			return err
-		}
-		if result != nil {
-			input.SavePath = result.SavePath
-			input.TorrentHash = result.TorrentHash
-			input.SizeBytes = result.SizeBytes
-			input.StartedAt = result.StartedAt
-			input.CompletedAt = result.CompletedAt
-		}
-		mediaID, err = p.mediaService.CreateFromRequest(ctx, input)
-		if err != nil {
-			return err
-		}
-		log.Info("created media row for download",
-			zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-			zap.Uint("media_id", mediaID),
-		)
-	} else if _, err := p.mediaService.GetMediaByID(ctx, mediaID); err != nil {
-		if errors.Is(err, media.ErrMediaNotFound) {
-			return fmt.Errorf("media %d not found for request %d: %w", mediaID, job.Payload.RequestEntryID, processingqueue.ErrPermanentFailure)
-		}
-		return err
-	} else {
-		log.Info("download job resuming with linked media (skipping torrent add and media create)",
-			zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-			zap.Uint("media_id", mediaID),
-		)
-	}
-
-	if p.requestLinker != nil {
-		if err := p.requestLinker.UpdateMediaID(ctx, job.Payload.RequestEntryID, mediaID); err != nil {
-			return fmt.Errorf("link request %d to media %d: %w", job.Payload.RequestEntryID, mediaID, err)
-		}
-	}
-
-	active, err := p.hardlinkProcessor.HasActiveJobForMediaID(ctx, mediaID)
-	if err != nil {
-		return err
-	}
-	if active {
-		log.Info("hardlink job already active for media; skipping enqueue",
-			zap.Uint("media_id", mediaID),
-			zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-		)
-	} else if err := p.hardlinkProcessor.Enqueue(ctx, hardlink.QueuePayload{
-		MediaID:        mediaID,
-		RequestEntryID: job.Payload.RequestEntryID,
-		UserID:         req.UserID,
-		Username:       req.Username,
-	}); err != nil {
-		return err
-	}
-
-	p.markDownloading(ctx, log, job.Payload.RequestEntryID)
-
-	log.Info("download job processed",
-		zap.String("job_id", job.ID.String()),
-		zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-		zap.String("request_id", job.Payload.RequestID),
-		zap.String("type", req.Type),
-		zap.Uint("media_id", mediaID),
-		zap.Uint("user_id", job.Payload.UserID),
-		zap.String("username", job.Payload.Username),
-	)
-	return nil
 }
 
 func (p *Processor) markDownloading(ctx context.Context, log *zap.Logger, requestEntryID uint) {
-	if p.requestStatus == nil || requestEntryID == 0 {
+	if p.requestStatus == nil {
 		return
 	}
-	updated, err := p.requestStatus.MarkDownloadingIfQueued(ctx, requestEntryID)
-	if err != nil {
-		log.Warn("failed to mark download request downloading",
-			zap.Uint("request_entry_id", requestEntryID),
-			zap.Error(err),
-		)
-		return
-	}
-	if updated {
-		log.Info("marked download request downloading",
-			zap.Uint("request_entry_id", requestEntryID),
-		)
-	}
+	queueutil.MarkRequest(ctx, log, requestEntryID, "download request downloading", p.requestStatus.MarkDownloadingIfQueued)
 }
 
 func (p *Processor) Enqueue(ctx context.Context, payload QueuePayload) error {
@@ -290,14 +301,5 @@ func (p *Processor) HasForwardJobForRequest(ctx context.Context, requestEntryID 
 }
 
 func (p *Processor) ListEntries(ctx context.Context, page, pageSize int) ([]QueuePayload, int64, error) {
-	result, err := p.queue.ListPaginated(ctx, page, pageSize)
-	if err != nil {
-		return nil, 0, err
-	}
-	entries := make([]QueuePayload, 0, len(result.Entries))
-	for _, row := range result.Entries {
-		_ = row.CreatedAt.Format(time.RFC3339)
-		entries = append(entries, row.Payload)
-	}
-	return entries, result.TotalCount, nil
+	return queueutil.ListPayloads(ctx, p.queue, page, pageSize)
 }

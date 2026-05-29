@@ -72,7 +72,7 @@ func (c *Client) Request(ctx context.Context, params map[string]string, result a
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		c.log.Warn("filelist api non-200",
@@ -106,7 +106,7 @@ func (c *Client) Browse(ctx context.Context, params map[string]string) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		c.log.Warn("filelist browse non-200",
@@ -134,7 +134,7 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) (strin
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err

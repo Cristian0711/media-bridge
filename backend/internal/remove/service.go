@@ -144,27 +144,71 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	// This closes qBittorrent's file descriptors so the upcoming unlinks
 	// actually free disk space immediately instead of leaving ghost
 	// inodes behind a still-open writer.
-	if paths.TorrentHash != "" {
-		if err := s.qbitService.RemoveTorrent(ctx, paths.TorrentHash); err != nil {
-			if errors.Is(err, qbittorrent.ErrTorrentNotFound) {
-				log.Info("torrent already absent from qbittorrent")
-			} else {
-				// Surface this as a retry — if qbit still has the torrent
-				// open we don't want to start unlinking files underneath it.
-				return fmt.Errorf("remove torrent from qbittorrent: %w", err)
-			}
-		}
+	if err := s.forgetTorrent(ctx, log, paths.TorrentHash); err != nil {
+		return err
 	}
+
+	// (4–8) Index sources, delete hardlinks + sources, and gate on a drained
+	// state so the queue retries until disk really is clean.
+	counts, err := s.purgeFiles(ctx, log, paths)
+	if err != nil {
+		return err
+	}
+
+	// (9) Best-effort empty-dir cleanup.
+	cleanupEmptyDirs(log, paths)
+
+	log.Info("remove completed",
+		zap.Int("sources_indexed", counts.sourcesIndexed),
+		zap.Int("hardlinks_removed", counts.hardlinksRemoved),
+		zap.Int("hardlinks_removed_late", counts.hardlinksRemovedLate),
+		zap.Int("sources_removed", counts.sourcesRemoved),
+	)
+	return nil
+}
+
+// forgetTorrent tells qBittorrent to drop the torrent without deleting files.
+// A missing torrent is fine; any other error is surfaced as a retry so we never
+// start unlinking files while qBittorrent may still hold them open.
+func (s *service) forgetTorrent(ctx context.Context, log *zap.Logger, hash string) error {
+	if hash == "" {
+		return nil
+	}
+	if err := s.qbitService.RemoveTorrent(ctx, hash); err != nil {
+		if errors.Is(err, qbittorrent.ErrTorrentNotFound) {
+			log.Info("torrent already absent from qbittorrent")
+			return nil
+		}
+		return fmt.Errorf("remove torrent from qbittorrent: %w", err)
+	}
+	return nil
+}
+
+// removalCounts records what purgeFiles deleted, for the completion log.
+type removalCounts struct {
+	sourcesIndexed       int
+	hardlinksRemoved     int
+	hardlinksRemovedLate int
+	sourcesRemoved       int
+}
+
+// purgeFiles performs steps 4–8: index the source inodes, delete the
+// destination hardlinks, delete the source files, sweep destination hardlinks a
+// second time (racing hardlink worker), then gate on a fully-drained state.
+func (s *service) purgeFiles(ctx context.Context, log *zap.Logger, paths *resolvedPaths) (removalCounts, error) {
+	var counts removalCounts
 
 	// (4) Index savePath: (device, inode) for every regular file. The pair
 	// identifies hardlinks regardless of name or location.
 	var sources []sourceFile
 	if paths.SavePath != "" {
-		sources, err = indexSources(ctx, log, paths.SavePath)
+		indexed, err := indexSources(ctx, log, paths.SavePath)
 		if err != nil {
-			return fmt.Errorf("index save path: %w", err)
+			return counts, fmt.Errorf("index save path: %w", err)
 		}
+		sources = indexed
 	}
+	counts.sourcesIndexed = len(sources)
 
 	// Build the inode lookup once — used for both destPath walks below.
 	var keys map[fileKey]string
@@ -176,15 +220,13 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	}
 
 	// (5) Walk destPath and delete every file whose inode is in the set.
-	hardlinksRemoved := 0
 	if len(keys) > 0 && paths.DestPath != "" {
-		hardlinksRemoved = removeHardlinksByInode(ctx, log, paths.DestPath, keys)
+		counts.hardlinksRemoved = removeHardlinksByInode(ctx, log, paths.DestPath, keys)
 	}
 
 	// (6) Walk savePath and delete every regular file underneath it.
-	sourcesRemoved := 0
 	if paths.SavePath != "" {
-		sourcesRemoved = removeAllRegularFiles(ctx, log, paths.SavePath)
+		counts.sourcesRemoved = removeAllRegularFiles(ctx, log, paths.SavePath)
 	}
 
 	// (7) Second destPath walk to catch any hardlinks created by a racing
@@ -192,20 +234,22 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	// calling os.Link until the source files disappear). The inode is
 	// kept alive by the orphan hardlink itself, so the same key map is
 	// still the right lookup.
-	hardlinksRemovedLate := 0
 	if len(keys) > 0 && paths.DestPath != "" {
-		hardlinksRemovedLate = removeHardlinksByInode(ctx, log, paths.DestPath, keys)
+		counts.hardlinksRemovedLate = removeHardlinksByInode(ctx, log, paths.DestPath, keys)
 	}
 
 	// (8) Gate: confirm savePath is drained and destPath holds no files
 	// sharing source inodes (R4 — catches hardlinks created after step 7).
 	if err := verifyRemovalDrained(ctx, log, paths, keys); err != nil {
-		return err
+		return counts, err
 	}
+	return counts, nil
+}
 
-	// (9) Empty-dir cleanup. os.Remove on a non-empty dir fails with
-	// ENOTEMPTY which we treat as "leave it alone" — that's exactly what
-	// we want for show folders that still hold other episodes.
+// cleanupEmptyDirs is best-effort tidying (step 9). os.Remove on a non-empty
+// dir fails with ENOTEMPTY which we treat as "leave it alone" — exactly what we
+// want for show folders that still hold other episodes.
+func cleanupEmptyDirs(log *zap.Logger, paths *resolvedPaths) {
 	if paths.SavePath != "" {
 		tryRemoveEmptyTreeBottomUp(log, paths.SavePath)
 	}
@@ -215,14 +259,6 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	if paths.ShowRoot != "" && paths.ShowRoot != paths.DestPath {
 		tryRemoveEmpty(log, paths.ShowRoot)
 	}
-
-	log.Info("remove completed",
-		zap.Int("sources_indexed", len(sources)),
-		zap.Int("hardlinks_removed", hardlinksRemoved),
-		zap.Int("hardlinks_removed_late", hardlinksRemovedLate),
-		zap.Int("sources_removed", sourcesRemoved),
-	)
-	return nil
 }
 
 // fileKey uniquely identifies a Unix inode on a device. Two files share
@@ -238,6 +274,38 @@ type sourceFile struct {
 	key  fileKey
 }
 
+// walkRegularFiles walks root and invokes fn for every regular file. Shared by
+// every file pass in this package so the boilerplate lives in one place:
+//   - a vanished root (ENOENT) is treated as an empty walk (success);
+//   - context cancellation aborts the walk and is returned;
+//   - per-path walk errors: when logContinue != nil they are logged and the
+//     offending subtree is skipped, otherwise they abort the walk and propagate.
+func walkRegularFiles(ctx context.Context, root string, logContinue *zap.Logger, fn func(path string, info os.FileInfo) error) error {
+	err := filepath.Walk(root, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			if logContinue != nil {
+				logContinue.Warn("walk error (continuing)", zap.String("path", p), zap.Error(walkErr))
+				return nil
+			}
+			return walkErr
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if info.IsDir() || !info.Mode().IsRegular() {
+			return nil
+		}
+		return fn(p, info)
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // indexSources walks savePath and returns every regular file together with
 // its (device, inode). The (dev, ino) pair is the key the destination walk
 // uses to identify hardlinks regardless of name or location.
@@ -246,20 +314,7 @@ type sourceFile struct {
 // on a retry that finished partially, or when the download never started.
 func indexSources(ctx context.Context, log *zap.Logger, savePath string) ([]sourceFile, error) {
 	var out []sourceFile
-	err := filepath.Walk(savePath, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			log.Warn("walk error (continuing)", zap.String("path", p), zap.Error(walkErr))
-			return nil
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil
-		}
+	err := walkRegularFiles(ctx, savePath, log, func(p string, info os.FileInfo) error {
 		key, ok := keyOf(info)
 		if !ok {
 			// Non-Unix FileInfo? Skip — without inode info we can't find a hardlink.
@@ -269,10 +324,7 @@ func indexSources(ctx context.Context, log *zap.Logger, savePath string) ([]sour
 		out = append(out, sourceFile{path: p, key: key})
 		return nil
 	})
-	if err != nil && !os.IsNotExist(err) {
-		return out, err
-	}
-	return out, nil
+	return out, err
 }
 
 // removeHardlinksByInode walks destPath and deletes every regular file whose
@@ -284,20 +336,7 @@ func indexSources(ctx context.Context, log *zap.Logger, savePath string) ([]sour
 // show root / season folder), so we don't scan the whole library.
 func removeHardlinksByInode(ctx context.Context, log *zap.Logger, destPath string, keys map[fileKey]string) int {
 	removed := 0
-	_ = filepath.Walk(destPath, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			log.Warn("dest walk error (continuing)", zap.String("path", p), zap.Error(walkErr))
-			return nil
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil
-		}
+	_ = walkRegularFiles(ctx, destPath, log, func(p string, info os.FileInfo) error {
 		key, ok := keyOf(info)
 		if !ok {
 			return nil
@@ -325,26 +364,11 @@ func removeHardlinksByInode(ctx context.Context, log *zap.Logger, destPath strin
 // counts as zero.
 func countRegularFiles(ctx context.Context, root string) (int, error) {
 	count := 0
-	err := filepath.Walk(root, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			return walkErr
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil
-		}
+	err := walkRegularFiles(ctx, root, nil, func(string, os.FileInfo) error {
 		count++
 		return nil
 	})
-	if err != nil && !os.IsNotExist(err) {
-		return count, err
-	}
-	return count, nil
+	return count, err
 }
 
 // removeAllRegularFiles walks root and deletes every regular file underneath
@@ -356,20 +380,7 @@ func countRegularFiles(ctx context.Context, root string) (int, error) {
 // that appeared between the snapshot and the release still need cleanup.
 func removeAllRegularFiles(ctx context.Context, log *zap.Logger, root string) int {
 	removed := 0
-	_ = filepath.Walk(root, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			log.Warn("walk error (continuing)", zap.String("path", p), zap.Error(walkErr))
-			return nil
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil
-		}
+	_ = walkRegularFiles(ctx, root, log, func(p string, info os.FileInfo) error {
 		switch err := os.Remove(p); {
 		case err == nil:
 			removed++
@@ -483,19 +494,7 @@ func countDestInodesMatching(ctx context.Context, destPath string, keys map[file
 		return 0, nil
 	}
 	count := 0
-	err := filepath.Walk(destPath, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
-			return walkErr
-		}
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil
-		}
+	err := walkRegularFiles(ctx, destPath, nil, func(p string, info os.FileInfo) error {
 		key, ok := keyOf(info)
 		if !ok {
 			return nil
@@ -505,10 +504,7 @@ func countDestInodesMatching(ctx context.Context, destPath string, keys map[file
 		}
 		return nil
 	})
-	if err != nil && !os.IsNotExist(err) {
-		return count, err
-	}
-	return count, nil
+	return count, err
 }
 
 func deref(p *string) string {
@@ -575,4 +571,3 @@ func tryRemoveEmptyTreeBottomUp(log *zap.Logger, root string) {
 		tryRemoveEmpty(log, dirs[i].path)
 	}
 }
-

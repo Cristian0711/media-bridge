@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -80,7 +81,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 
 		handlerCtx, cancelHandler := context.WithCancel(ctx)
 		stopHeartbeat := q.startLeaseHeartbeat(handlerCtx, job.ID)
-		err = handler(handlerCtx, job)
+		err = q.invokeHandler(handlerCtx, handler, job)
 		stopHeartbeat()
 		cancelHandler()
 
@@ -140,6 +141,25 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 	}
 }
 
+// invokeHandler runs handler and converts a panic into an error. Without this a
+// panicking handler would kill the worker goroutine and leave the row stuck in
+// 'processing' until the recovery loop requeues it (one full WorkerTimeout
+// later). Recovering turns it into a normal job failure, so retries apply.
+func (q *Queue[T]) invokeHandler(ctx context.Context, handler HandlerFunc[T], job *Job[T]) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(ctx, "processingqueue: handler panic recovered",
+				"queue", q.name,
+				"job_id", job.ID,
+				"panic", fmt.Sprint(r),
+				"stack", string(debug.Stack()),
+			)
+			err = fmt.Errorf("handler panicked: %v", r)
+		}
+	}()
+	return handler(ctx, job)
+}
+
 // runRecovery periodically requeues jobs whose worker stopped responding.
 func (q *Queue[T]) runRecovery(ctx context.Context) {
 	ticker := time.NewTicker(q.opts.RecoveryInterval)
@@ -187,12 +207,30 @@ func (q *Queue[T]) recoverStale(ctx context.Context) error {
 	return nil
 }
 
-const leaseHeartbeatInterval = 30 * time.Second
+// maxLeaseHeartbeatInterval caps how often a live worker bumps its lease. Long
+// timeouts don't need sub-minute heartbeats.
+const maxLeaseHeartbeatInterval = 30 * time.Second
+
+// leaseHeartbeatInterval returns how often a worker should refresh its lease so
+// the recovery loop never requeues a job a live worker is still processing. It
+// is a fraction of WorkerTimeout (so short-timeout queues heartbeat sooner than
+// the fixed 30s would allow), capped at 30s and floored at 1s to avoid
+// hammering the DB.
+func (q *Queue[T]) leaseHeartbeatInterval() time.Duration {
+	interval := q.opts.WorkerTimeout / 3
+	if interval > maxLeaseHeartbeatInterval {
+		interval = maxLeaseHeartbeatInterval
+	}
+	if interval < time.Second {
+		interval = time.Second
+	}
+	return interval
+}
 
 func (q *Queue[T]) startLeaseHeartbeat(ctx context.Context, jobID uuid.UUID) context.CancelFunc {
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 	go func() {
-		ticker := time.NewTicker(leaseHeartbeatInterval)
+		ticker := time.NewTicker(q.leaseHeartbeatInterval())
 		defer ticker.Stop()
 		for {
 			select {

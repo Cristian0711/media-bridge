@@ -37,27 +37,27 @@ type Response struct {
 }
 
 type Item struct {
-	Fid                string  `json:"fid"`
-	Filename           string  `json:"filename"`
-	Name               string  `json:"name"`
-	CategoryID         int     `json:"categoryID"`
-	Size               int64   `json:"size"`
-	Completed          int     `json:"completed"`
-	Seeders            int     `json:"seeders"`
-	Leechers           int     `json:"leechers"`
-	NumComments        int     `json:"numComments"`
+	Fid                string   `json:"fid"`
+	Filename           string   `json:"filename"`
+	Name               string   `json:"name"`
+	CategoryID         int      `json:"categoryID"`
+	Size               int64    `json:"size"`
+	Completed          int      `json:"completed"`
+	Seeders            int      `json:"seeders"`
+	Leechers           int      `json:"leechers"`
+	NumComments        int      `json:"numComments"`
 	Tags               []string `json:"tags"`
-	New                bool    `json:"new"`
-	ImdbID             string  `json:"imdbID"`
-	Rating             float64 `json:"rating"`
-	Genres             string  `json:"genres"`
-	TvMazeID           string  `json:"tvmazeID"`
-	IgdbID             string  `json:"igdbID"`
-	AnimeID            any     `json:"animeID"`
-	AddedTimestamp     string  `json:"addedTimestamp"`
-	DownloadMultiplier float64 `json:"download_multiplier"`
-	CommentsDisabled   int     `json:"commentsDisabled"`
-	Uploader           string  `json:"uploader,omitempty"`
+	New                bool     `json:"new"`
+	ImdbID             string   `json:"imdbID"`
+	Rating             float64  `json:"rating"`
+	Genres             string   `json:"genres"`
+	TvMazeID           string   `json:"tvmazeID"`
+	IgdbID             string   `json:"igdbID"`
+	AnimeID            any      `json:"animeID"`
+	AddedTimestamp     string   `json:"addedTimestamp"`
+	DownloadMultiplier float64  `json:"download_multiplier"`
+	CommentsDisabled   int      `json:"commentsDisabled"`
+	Uploader           string   `json:"uploader,omitempty"`
 }
 
 func NewClient(cfg Config) *Client {
@@ -110,7 +110,7 @@ func (c *Client) Search(ctx context.Context, query string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("torrentleech API error: %s", resp.Status)
@@ -136,7 +136,7 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) (strin
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}

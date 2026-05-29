@@ -9,16 +9,16 @@ const progressCompleteThreshold = 0.999
 
 // States where the torrent is still downloading or preparing — not safe to finalize.
 var activeDownloadStates = map[string]struct{}{
-	"downloading":  {},
-	"metadl":       {},
-	"stalleddl":    {},
-	"queueddl":     {},
-	"checkingdl":   {},
-	"allocating":   {},
-	"moving":       {},
-	"forceddl":     {},
-	"pauseddl":     {},
-	"queuedfore":   {},
+	"downloading":    {},
+	"metadl":         {},
+	"stalleddl":      {},
+	"queueddl":       {},
+	"checkingdl":     {},
+	"allocating":     {},
+	"moving":         {},
+	"forceddl":       {},
+	"pauseddl":       {},
+	"queuedfore":     {},
 	"checkingresume": {},
 }
 
@@ -47,15 +47,10 @@ func FileDownloadComplete(progress float32) bool {
 	return progress >= progressCompleteThreshold
 }
 
-// TorrentFilesComplete checks that every linkable file in the torrent has finished downloading.
-func (s *service) TorrentFilesComplete(ctx context.Context, hash string, shouldCount func(name string, size int64) bool) (bool, error) {
-	files, err := s.GetTorrentFiles(ctx, hash)
-	if err != nil {
-		return false, err
-	}
-	if len(files) == 0 {
-		return false, nil
-	}
+// FilesComplete is true when at least one counted file exists and every counted
+// file has finished downloading. shouldCount selects which files matter (nil
+// counts all). An empty file list is never complete.
+func FilesComplete(files []TorrentFile, shouldCount func(name string, size int64) bool) bool {
 	if shouldCount == nil {
 		shouldCount = func(string, int64) bool { return true }
 	}
@@ -66,10 +61,19 @@ func (s *service) TorrentFilesComplete(ctx context.Context, hash string, shouldC
 		}
 		counted++
 		if !FileDownloadComplete(f.Progress) {
-			return false, nil
+			return false
 		}
 	}
-	return counted > 0, nil
+	return counted > 0
+}
+
+// TorrentFilesComplete checks that every linkable file in the torrent has finished downloading.
+func (s *service) TorrentFilesComplete(ctx context.Context, hash string, shouldCount func(name string, size int64) bool) (bool, error) {
+	files, err := s.GetTorrentFiles(ctx, hash)
+	if err != nil {
+		return false, err
+	}
+	return FilesComplete(files, shouldCount), nil
 }
 
 // ReadyForLibrary is true when transfer and per-file progress indicate the torrent

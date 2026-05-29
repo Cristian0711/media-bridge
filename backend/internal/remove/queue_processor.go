@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
+	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/Cristian0711/media-bridge/backend/shared/queueutil"
 	"go.uber.org/zap"
 )
 
@@ -54,19 +54,8 @@ func NewProcessor(
 	downloadCanceller DownloadCanceller,
 	requestStatus RemoveRequestStatusUpdater,
 ) (*Processor, error) {
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	q, err := queueutil.NewQueue[QueuePayload](databaseURL, pipeline.QueueRemove, processingqueue.LongRunningQueueOptions()...)
 	if err != nil {
-		return nil, err
-	}
-	q, err := processingqueue.New[QueuePayload](
-		pool,
-		"remove_processing_queue",
-		processingqueue.LongRunningQueueOptions()...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := q.EnsureTable(context.Background()); err != nil {
 		return nil, err
 	}
 	return &Processor{
@@ -89,7 +78,7 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 		if err != nil {
 			return err
 		}
-		if req.Type != "movie_remove" && req.Type != "show_remove" {
+		if !pipeline.IsRemoveType(req.Type) {
 			return fmt.Errorf("unsupported request type for remove queue: %s", req.Type)
 		}
 		err = p.processRemoveJob(ctx, log, job, req)
@@ -167,22 +156,10 @@ func (p *Processor) processRemoveJob(
 }
 
 func (p *Processor) markRemoveRequestFailed(ctx context.Context, log *zap.Logger, requestEntryID uint) {
-	if p.requestStatus == nil || requestEntryID == 0 {
+	if p.requestStatus == nil {
 		return
 	}
-	updated, err := p.requestStatus.MarkFailedIfRemoving(ctx, requestEntryID)
-	if err != nil {
-		log.Warn("failed to mark remove request failed",
-			zap.Uint("request_entry_id", requestEntryID),
-			zap.Error(err),
-		)
-		return
-	}
-	if updated {
-		log.Info("marked remove request failed",
-			zap.Uint("request_entry_id", requestEntryID),
-		)
-	}
+	queueutil.MarkRequest(ctx, log, requestEntryID, "remove request failed", p.requestStatus.MarkFailedIfRemoving)
 }
 
 func (p *Processor) Enqueue(ctx context.Context, payload QueuePayload) error {
@@ -207,14 +184,5 @@ func (p *Processor) HasActiveRemoveForMedia(ctx context.Context, mediaID uint) (
 }
 
 func (p *Processor) ListEntries(ctx context.Context, page, pageSize int) ([]QueuePayload, int64, error) {
-	result, err := p.queue.ListPaginated(ctx, page, pageSize)
-	if err != nil {
-		return nil, 0, err
-	}
-	entries := make([]QueuePayload, 0, len(result.Entries))
-	for _, row := range result.Entries {
-		_ = row.CreatedAt.Format(time.RFC3339)
-		entries = append(entries, row.Payload)
-	}
-	return entries, result.TotalCount, nil
+	return queueutil.ListPayloads(ctx, p.queue, page, pageSize)
 }

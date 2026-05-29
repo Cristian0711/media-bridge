@@ -4,8 +4,8 @@ import "time"
 
 // Overall status for the report.
 const (
-	StatusHealthy  = "healthy"
-	StatusDegraded = "degraded"
+	StatusHealthy   = "healthy"
+	StatusDegraded  = "degraded"
 	StatusUnhealthy = "unhealthy"
 )
 

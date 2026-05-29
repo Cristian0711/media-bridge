@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,10 +10,12 @@ import (
 )
 
 type Server struct {
-	http *http.Server
+	http        *http.Server
+	cancel      context.CancelFunc
+	shutdownFns []func()
 }
 
-func newServer(port string, r *gin.Engine) *Server {
+func newServer(port string, r *gin.Engine, cancel context.CancelFunc, shutdownFns ...func()) *Server {
 	return &Server{
 		http: &http.Server{
 			Addr:    fmt.Sprintf(":%s", port),
@@ -25,9 +28,26 @@ func newServer(port string, r *gin.Engine) *Server {
 			WriteTimeout: 0,
 			IdleTimeout:  120 * time.Second,
 		},
+		cancel:      cancel,
+		shutdownFns: shutdownFns,
 	}
 }
 
 func (s *Server) Run() error {
 	return s.http.ListenAndServe()
+}
+
+// Shutdown stops background workers (by cancelling their root context), closes
+// the SSE brokers, then gracefully drains in-flight HTTP requests within ctx's
+// deadline. Returns http.Server.Shutdown's error.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	for _, fn := range s.shutdownFns {
+		if fn != nil {
+			fn()
+		}
+	}
+	return s.http.Shutdown(ctx)
 }

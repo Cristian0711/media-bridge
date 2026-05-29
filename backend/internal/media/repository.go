@@ -19,21 +19,13 @@ type Repository interface {
 	FindMediaIDsForMovieDownload(ctx context.Context, imdbID, tmdbID, quality string) ([]uint, error)
 	// FindMediaIDsByShowScope returns media row IDs for a show + season/episode scope.
 	FindMediaIDsByShowScope(ctx context.Context, showID uint, quality string, season, episode *int) ([]uint, error)
-	DeleteMediaByIDs(ctx context.Context, mediaIDs []uint) error
-	DeleteMediaByMovieIDs(ctx context.Context, movieIDs []uint) error
-	CountMediaByMovieID(ctx context.Context, movieID uint) (int64, error)
-	DeleteMoviesByIDs(ctx context.Context, movieIDs []uint) error
 	FindShowByExternalIDOrName(ctx context.Context, imdbID, tvdbID, name string) (*Show, error)
 	FindShowEntryIDsByShowAndScope(ctx context.Context, showID uint, quality string, season, episode *int) ([]uint, error)
-	CountMediaByShowEntryID(ctx context.Context, showEntryID uint) (int64, error)
-	DeleteMediaByShowEntryIDs(ctx context.Context, showEntryIDs []uint) error
-	DeleteShowEntriesByIDs(ctx context.Context, showEntryIDs []uint) error
-	CountShowEntriesByShowID(ctx context.Context, showID uint) (int64, error)
-	DeleteShowByID(ctx context.Context, showID uint) error
 	// DeleteMovieMediaCascade removes media + orphan movie in one transaction (R3).
 	DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error
 	// DeleteShowMediaCascade removes media + orphan show_entry/show in one transaction (R3).
-	DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID, showID uint) error
+	// The show id is resolved from the show_entry inside the transaction.
+	DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID uint) error
 	UpdateLibraryPath(ctx context.Context, mediaID uint, libraryPath string) error
 }
 
@@ -158,7 +150,7 @@ func (r *repository) CreateMovieWithMedia(ctx context.Context, movie *Movie, med
 
 func (r *repository) CreateShowEntryWithMedia(ctx context.Context, show *Show, entry *ShowEntry, media *Media) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(show).Error; err != nil {
+		if err := findOrCreateShow(tx, show); err != nil {
 			return err
 		}
 		entry.ShowID = show.ID
@@ -168,6 +160,33 @@ func (r *repository) CreateShowEntryWithMedia(ctx context.Context, show *Show, e
 		media.ShowEntryID = &entry.ID
 		return tx.Create(media).Error
 	})
+}
+
+// findOrCreateShow reuses an existing Show matched by external id (or name as a
+// last resort) so multiple episode downloads of the same series do not create
+// duplicate Show rows. On match, *show is replaced with the stored row so the
+// caller links the entry to the existing show id.
+func findOrCreateShow(tx *gorm.DB, show *Show) error {
+	q := tx.Model(&Show{})
+	switch {
+	case show.IMDBID != "":
+		q = q.Where("imdb_id = ?", show.IMDBID)
+	case show.TVDBID != "":
+		q = q.Where("tvdb_id = ?", show.TVDBID)
+	default:
+		q = q.Where("name = ?", show.Name)
+	}
+
+	var existing Show
+	err := q.First(&existing).Error
+	if err == nil {
+		*show = existing
+		return nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return err
+	}
+	return tx.Create(show).Error
 }
 
 func (r *repository) FindMediaIDsForMovieDownload(ctx context.Context, imdbID, tmdbID, quality string) ([]uint, error) {
@@ -234,26 +253,6 @@ func (r *repository) FindMovieIDsByExternalIDAndQuality(ctx context.Context, imd
 	return ids, nil
 }
 
-func (r *repository) DeleteMediaByMovieIDs(ctx context.Context, movieIDs []uint) error {
-	return r.db.WithContext(ctx).Unscoped().Where("movie_id IN ?", movieIDs).Delete(&Media{}).Error
-}
-
-func (r *repository) DeleteMediaByIDs(ctx context.Context, mediaIDs []uint) error {
-	return r.db.WithContext(ctx).Unscoped().Where("id IN ?", mediaIDs).Delete(&Media{}).Error
-}
-
-func (r *repository) CountMediaByMovieID(ctx context.Context, movieID uint) (int64, error) {
-	var count int64
-	if err := r.db.WithContext(ctx).Model(&Media{}).Where("movie_id = ?", movieID).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
-func (r *repository) DeleteMoviesByIDs(ctx context.Context, movieIDs []uint) error {
-	return r.db.WithContext(ctx).Delete(&Movie{}, movieIDs).Error
-}
-
 func (r *repository) FindShowByExternalIDOrName(ctx context.Context, imdbID, tvdbID, name string) (*Show, error) {
 	query := r.db.WithContext(ctx).Model(&Show{})
 	if imdbID != "" {
@@ -282,11 +281,19 @@ func (r *repository) FindShowEntryIDsByShowAndScope(ctx context.Context, showID 
 		Where("show_entries.show_id = ?", showID).
 		Where("media.quality = ?", quality)
 
+	// Match the exact scope: a nil season/episode represents a full show or full
+	// season, which must dedup only against a stored NULL row — not against
+	// arbitrary individual episodes. This mirrors FindMediaIDsByShowScope so the
+	// dedup pre-check and the retry idempotency lookup agree (B2).
 	if season != nil {
 		query = query.Where("show_entries.season = ?", *season)
+	} else {
+		query = query.Where("show_entries.season IS NULL")
 	}
 	if episode != nil {
 		query = query.Where("show_entries.episode = ?", *episode)
+	} else {
+		query = query.Where("show_entries.episode IS NULL")
 	}
 
 	var ids []uint
@@ -294,34 +301,6 @@ func (r *repository) FindShowEntryIDsByShowAndScope(ctx context.Context, showID 
 		return nil, err
 	}
 	return ids, nil
-}
-
-func (r *repository) DeleteMediaByShowEntryIDs(ctx context.Context, showEntryIDs []uint) error {
-	return r.db.WithContext(ctx).Unscoped().Where("show_entry_id IN ?", showEntryIDs).Delete(&Media{}).Error
-}
-
-func (r *repository) CountMediaByShowEntryID(ctx context.Context, showEntryID uint) (int64, error) {
-	var count int64
-	if err := r.db.WithContext(ctx).Model(&Media{}).Where("show_entry_id = ?", showEntryID).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
-func (r *repository) DeleteShowEntriesByIDs(ctx context.Context, showEntryIDs []uint) error {
-	return r.db.WithContext(ctx).Unscoped().Where("id IN ?", showEntryIDs).Delete(&ShowEntry{}).Error
-}
-
-func (r *repository) CountShowEntriesByShowID(ctx context.Context, showID uint) (int64, error) {
-	var remaining int64
-	if err := r.db.WithContext(ctx).Model(&ShowEntry{}).Where("show_id = ?", showID).Count(&remaining).Error; err != nil {
-		return 0, err
-	}
-	return remaining, nil
-}
-
-func (r *repository) DeleteShowByID(ctx context.Context, showID uint) error {
-	return r.db.WithContext(ctx).Delete(&Show{}, showID).Error
 }
 
 func (r *repository) DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error {
@@ -340,8 +319,17 @@ func (r *repository) DeleteMovieMediaCascade(ctx context.Context, mediaID, movie
 	})
 }
 
-func (r *repository) DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID, showID uint) error {
+func (r *repository) DeleteShowMediaCascade(ctx context.Context, mediaID, showEntryID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Resolve the parent show id from the entry before deleting it, rather
+		// than trusting a preloaded association on the caller's media row.
+		var showID uint
+		if err := tx.Model(&ShowEntry{}).
+			Where("id = ?", showEntryID).
+			Select("show_id").
+			Scan(&showID).Error; err != nil {
+			return err
+		}
 		if err := tx.Unscoped().Where("id = ?", mediaID).Delete(&Media{}).Error; err != nil {
 			return err
 		}

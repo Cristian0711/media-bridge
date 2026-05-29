@@ -12,5 +12,6 @@ func fileNLink(info os.FileInfo) (uint64, bool) {
 	if !ok {
 		return 0, false
 	}
-	return uint64(st.Nlink), true
+	// st.Nlink is uint64 on Linux but uint16 on darwin; keep the conversion.
+	return uint64(st.Nlink), true //nolint:unconvert
 }

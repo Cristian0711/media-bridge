@@ -1,7 +1,6 @@
 package processingqueue
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -76,9 +75,4 @@ func WithRecoveryInterval(d time.Duration) Option {
 // application must agree on the same table name.
 func WithTable(name string) Option {
 	return func(o *Options) { o.Table = name }
-}
-
-// fmtInterval converts a Go duration to a Postgres interval literal.
-func fmtInterval(d time.Duration) string {
-	return fmt.Sprintf("%d microseconds", d.Microseconds())
 }

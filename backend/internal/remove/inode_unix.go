@@ -19,5 +19,6 @@ func keyOf(info os.FileInfo) (fileKey, bool) {
 	if !ok {
 		return fileKey{}, false
 	}
-	return fileKey{dev: uint64(st.Dev), ino: uint64(st.Ino)}, true
+	// st.Dev/st.Ino widths vary by GOOS (e.g. int32 Dev on darwin); keep conversions.
+	return fileKey{dev: uint64(st.Dev), ino: uint64(st.Ino)}, true //nolint:unconvert
 }

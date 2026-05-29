@@ -17,9 +17,9 @@ type authSvcStub struct {
 	loginFn         func(ctx context.Context, req auth.LoginRequest) (*auth.LoginResponse, error)
 	registerFn      func(ctx context.Context, req auth.RegisterRequest) (*auth.RegisterResponse, error)
 	validateTokenFn func(ctx context.Context, token string) (*auth.ValidateResponse, error)
-	generateKeyFn  func(ctx context.Context) (*auth.GenerateKeyResponse, error)
-	listKeysFn     func(ctx context.Context) (*auth.ListKeysResponse, error)
-	getKeyStatusFn func(ctx context.Context, value string) (*auth.KeyStatusResponse, error)
+	generateKeyFn   func(ctx context.Context) (*auth.GenerateKeyResponse, error)
+	listKeysFn      func(ctx context.Context) (*auth.ListKeysResponse, error)
+	getKeyStatusFn  func(ctx context.Context, value string) (*auth.KeyStatusResponse, error)
 }
 
 func (s *authSvcStub) Login(ctx context.Context, req auth.LoginRequest) (*auth.LoginResponse, error) {
@@ -82,12 +82,24 @@ func TestOtherAuthHandlers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	h := auth.NewHandler(&authSvcStub{
-		loginFn:         func(context.Context, auth.LoginRequest) (*auth.LoginResponse, error) { return &auth.LoginResponse{Token: "t"}, nil },
-		validateTokenFn: func(context.Context, string) (*auth.ValidateResponse, error) { return &auth.ValidateResponse{Valid: true, UserID: 1}, nil },
-		generateKeyFn:  func(context.Context) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{Key: "k"}, nil },
-		listKeysFn:     func(context.Context) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{Keys: []auth.InviteKeyResponse{{Value: "k", Status: "available"}}}, nil },
-		getKeyStatusFn: func(context.Context, string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{Value: "k", IsActive: true, Status: "available"}, nil },
-		registerFn:      func(context.Context, auth.RegisterRequest) (*auth.RegisterResponse, error) { return &auth.RegisterResponse{ID: 1, Username: "a"}, nil },
+		loginFn: func(context.Context, auth.LoginRequest) (*auth.LoginResponse, error) {
+			return &auth.LoginResponse{Token: "t"}, nil
+		},
+		validateTokenFn: func(context.Context, string) (*auth.ValidateResponse, error) {
+			return &auth.ValidateResponse{Valid: true, UserID: 1}, nil
+		},
+		generateKeyFn: func(context.Context) (*auth.GenerateKeyResponse, error) {
+			return &auth.GenerateKeyResponse{Key: "k"}, nil
+		},
+		listKeysFn: func(context.Context) (*auth.ListKeysResponse, error) {
+			return &auth.ListKeysResponse{Keys: []auth.InviteKeyResponse{{Value: "k", Status: "available"}}}, nil
+		},
+		getKeyStatusFn: func(context.Context, string) (*auth.KeyStatusResponse, error) {
+			return &auth.KeyStatusResponse{Value: "k", IsActive: true, Status: "available"}, nil
+		},
+		registerFn: func(context.Context, auth.RegisterRequest) (*auth.RegisterResponse, error) {
+			return &auth.RegisterResponse{ID: 1, Username: "a"}, nil
+		},
 	})
 
 	r := gin.New()

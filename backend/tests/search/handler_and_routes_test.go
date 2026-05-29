@@ -21,16 +21,16 @@ func TestSearchRoutesRegistered(t *testing.T) {
 	search.RegisterRoutes(r.Group("/api/v1"), search.NewHandler(svc))
 
 	expected := map[string]bool{
-		"GET /api/v1/search":                          false,
-		"GET /api/v1/search/external-ids":             false,
-		"GET /api/v1/search/movies":                   false,
-		"GET /api/v1/search/shows":                    false,
-		"GET /api/v1/browse/services":                      false,
+		"GET /api/v1/search":                             false,
+		"GET /api/v1/search/external-ids":                false,
+		"GET /api/v1/search/movies":                      false,
+		"GET /api/v1/search/shows":                       false,
+		"GET /api/v1/browse/services":                    false,
 		"GET /api/v1/browse/services/:serviceId/catalog": false,
-		"GET /api/v1/browse/services/:serviceId/lists":     false,
-		"GET /api/v1/browse/global/catalog":                false,
-		"GET /api/v1/browse/lists":                         false,
-		"GET /api/v1/browse/:id":                           false,
+		"GET /api/v1/browse/services/:serviceId/lists":   false,
+		"GET /api/v1/browse/global/catalog":              false,
+		"GET /api/v1/browse/lists":                       false,
+		"GET /api/v1/browse/:id":                         false,
 	}
 	for _, route := range r.Routes() {
 		key := route.Method + " " + route.Path

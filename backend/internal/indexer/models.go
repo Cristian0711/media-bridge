@@ -1,8 +1,6 @@
 package indexer
 
 type SearchRequest struct {
-	Name     string   `json:"name"`
-	Year     int      `json:"year,omitempty"`
 	ImdbID   string   `json:"imdb_id,omitempty"`
 	Season   int      `json:"season,omitempty"`
 	Episode  int      `json:"episode,omitempty"`

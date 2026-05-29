@@ -199,15 +199,6 @@ func catalogCacheKeyForList(listID string) (string, bool) {
 	return "", false
 }
 
-func (s *Service) warmBrowseListPage(ctx context.Context, listID string, page int) error {
-	result, err := s.fetchBrowse(ctx, listID, page)
-	if err != nil {
-		return err
-	}
-	s.browseCache.setListPage(listID, page, result)
-	return nil
-}
-
 func (s *Service) fetchBrowse(ctx context.Context, listID string, page int) (*SearchPage, error) {
 	if strings.Contains(listID, ":") {
 		serviceID, kind, err := parseServiceListID(listID)

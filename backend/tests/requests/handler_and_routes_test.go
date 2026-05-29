@@ -14,15 +14,15 @@ import (
 )
 
 type requestsSvcStub struct {
-	movieDownloadFn func(ctx context.Context, req requests.MovieDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
-	showDownloadFn  func(ctx context.Context, req requests.ShowDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
-	movieRemoveFn   func(ctx context.Context, req requests.MovieRemoveRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
-	showRemoveFn    func(ctx context.Context, req requests.ShowRemoveRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
-	listFn          func(ctx context.Context, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
-	listQueueFn          func(ctx context.Context, page, pageSize int) (*requests.PaginatedQueueEntriesResponse, error)
-	listForUserFn        func(ctx context.Context, userID uint, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
-	getRequestTorrentFn       func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
-	getRequestTorrentFreshFn  func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
+	movieDownloadFn          func(ctx context.Context, req requests.MovieDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
+	showDownloadFn           func(ctx context.Context, req requests.ShowDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
+	movieRemoveFn            func(ctx context.Context, req requests.MovieRemoveRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
+	showRemoveFn             func(ctx context.Context, req requests.ShowRemoveRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error)
+	listFn                   func(ctx context.Context, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
+	listQueueFn              func(ctx context.Context, page, pageSize int) (*requests.PaginatedQueueEntriesResponse, error)
+	listForUserFn            func(ctx context.Context, userID uint, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
+	getRequestTorrentFn      func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
+	getRequestTorrentFreshFn func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
 }
 
 func (s *requestsSvcStub) RequestMovieDownload(ctx context.Context, req requests.MovieDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error) {

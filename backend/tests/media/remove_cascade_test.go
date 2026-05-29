@@ -92,7 +92,7 @@ func TestDeleteShowMediaCascade_HardDeletesShowEntry(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	if err := repo.DeleteShowMediaCascade(ctx, mediaRow.ID, entry.ID, show.ID); err != nil {
+	if err := repo.DeleteShowMediaCascade(ctx, mediaRow.ID, entry.ID); err != nil {
 		t.Fatalf("cascade: %v", err)
 	}
 

@@ -1,23 +1,24 @@
 package requests
 
-// Request types route a request to the download or remove pipeline.
-const (
-	TypeMovieDownload = "movie_download"
-	TypeShowDownload  = "show_download"
-	TypeMovieRemove   = "movie_remove"
-	TypeShowRemove    = "show_remove"
-)
+import "github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 
-// Request lifecycle statuses.
+// Request types and lifecycle statuses are defined in internal/pipeline so the
+// download/remove/health packages can share them without import cycles. These
+// aliases keep the requests package terse.
 const (
-	StatusPending     = "pending"
-	StatusQueued      = "queued"
-	StatusDownloading = "downloading"
-	StatusDownloaded  = "downloaded"
-	StatusRemoving    = "removing"
-	StatusRemoved     = "removed"
-	StatusFailed      = "failed"
-	StatusCancelled   = "cancelled"
+	TypeMovieDownload = pipeline.TypeMovieDownload
+	TypeShowDownload  = pipeline.TypeShowDownload
+	TypeMovieRemove   = pipeline.TypeMovieRemove
+	TypeShowRemove    = pipeline.TypeShowRemove
+
+	StatusPending     = pipeline.StatusPending
+	StatusQueued      = pipeline.StatusQueued
+	StatusDownloading = pipeline.StatusDownloading
+	StatusDownloaded  = pipeline.StatusDownloaded
+	StatusRemoving    = pipeline.StatusRemoving
+	StatusRemoved     = pipeline.StatusRemoved
+	StatusFailed      = pipeline.StatusFailed
+	StatusCancelled   = pipeline.StatusCancelled
 )
 
 // activeDownloadStatuses lists the states that count as "this download is
@@ -41,14 +42,10 @@ var terminalRequestStatuses = []string{StatusDownloaded, StatusRemoved, StatusFa
 
 // downloadTypes / removeTypes group request types by pipeline.
 var (
-	downloadTypes = []string{TypeMovieDownload, TypeShowDownload}
-	removeTypes   = []string{TypeMovieRemove, TypeShowRemove}
+	downloadTypes = pipeline.DownloadTypes
+	removeTypes   = pipeline.RemoveTypes
 )
 
 func isDownloadType(t string) bool {
-	return t == TypeMovieDownload || t == TypeShowDownload
-}
-
-func isRemoveType(t string) bool {
-	return t == TypeMovieRemove || t == TypeShowRemove
+	return pipeline.IsDownloadType(t)
 }

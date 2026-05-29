@@ -15,6 +15,11 @@ var (
 	ErrTorrentNotFound = errors.New("torrent not found")
 )
 
+// CategoryPlexMedia is the qBittorrent category this service manages. All
+// torrents added by media-bridge are tagged with it and every listing filters
+// on it, so other torrents on the same qBittorrent instance are ignored.
+const CategoryPlexMedia = "plexmedia"
+
 type Service interface {
 	AddTorrent(ctx context.Context, file []byte, savePath, torrentName string) (*AddTorrentResponse, error)
 	RemoveTorrent(ctx context.Context, hash string) error
@@ -48,7 +53,7 @@ func NewService(url, username, password string) (Service, error) {
 }
 
 func (s *service) AddTorrent(ctx context.Context, file []byte, savePath, torrentName string) (*AddTorrentResponse, error) {
-	options := map[string]string{"category": "plexmedia"}
+	options := map[string]string{"category": CategoryPlexMedia}
 
 	hasFolder, err := torrentHasRootFolder(file)
 	if err == nil && !hasFolder && torrentName != "" {
@@ -104,7 +109,7 @@ func (s *service) RemoveTorrent(ctx context.Context, hash string) error {
 
 func (s *service) ListTorrents(ctx context.Context) ([]Torrent, error) {
 	torrents, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{
-		Category: "plexmedia",
+		Category: CategoryPlexMedia,
 		Sort:     "added_on",
 		Reverse:  true,
 	})
@@ -128,7 +133,7 @@ func (s *service) ListTorrentsPaginated(ctx context.Context, page, pageSize int)
 	}
 	offset := (page - 1) * pageSize
 
-	all, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{Category: "plexmedia"})
+	all, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{Category: CategoryPlexMedia})
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +144,7 @@ func (s *service) ListTorrentsPaginated(ctx context.Context, page, pageSize int)
 	}
 
 	torrents, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{
-		Category: "plexmedia",
+		Category: CategoryPlexMedia,
 		Sort:     "added_on",
 		Reverse:  true,
 		Limit:    pageSize,
@@ -188,14 +193,14 @@ func (s *service) GetTorrentStatus(ctx context.Context, hash string) (*TorrentSt
 
 func (s *service) TorrentsByHash(ctx context.Context) (map[string]Torrent, error) {
 	torrents, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{
-		Category: "plexmedia",
+		Category: CategoryPlexMedia,
 	})
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string]Torrent, len(torrents))
 	for _, t := range torrents {
-		out[t.Hash] = mapTorrent(t)
+		out[NormalizeHash(t.Hash)] = mapTorrent(t)
 	}
 	return out, nil
 }
@@ -203,7 +208,7 @@ func (s *service) TorrentsByHash(ctx context.Context) (map[string]Torrent, error
 func (s *service) GetTorrent(ctx context.Context, hash string) (*Torrent, error) {
 	hash = NormalizeHash(hash)
 	torrents, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{
-		Category: "plexmedia",
+		Category: CategoryPlexMedia,
 		Hashes:   []string{hash},
 	})
 	if err != nil {

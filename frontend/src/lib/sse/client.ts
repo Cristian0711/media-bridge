@@ -3,6 +3,7 @@ import { setSseConnectionStatus } from '$lib/sse/connection-status';
 import { dispatchAppSseEvent } from '$lib/sse/dispatch';
 import { parseSseChunk } from '$lib/sse/parse';
 import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
+import type { AppSseEnvelope } from '$lib/sse/types';
 
 const RECONNECT_MS_MIN = 2000;
 const RECONNECT_MS_MAX = 30000;
@@ -80,7 +81,7 @@ export function connectAppEvents(): AppSseConnection {
         buffer = rest;
 
         for (const msg of messages) {
-          dispatchAppSseEvent(msg.data);
+          dispatchAppSseEvent(msg.data as AppSseEnvelope | null);
         }
       }
 

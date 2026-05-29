@@ -27,13 +27,13 @@ func TestFilterFreeleechMoviesOnly(t *testing.T) {
 				{
 					ID: "1",
 					Attributes: torrentAttributes{
-						Name:           "Inception 2010 1080p",
-						Category:       "Movie",
-						CategoryID:     1,
-						Size:           1000,
-						Seeders:        10,
-						Freeleech:      "100%",
-						DownloadLink:   "https://blutopia.cc/torrent/download/1.token",
+						Name:         "Inception 2010 1080p",
+						Category:     "Movie",
+						CategoryID:   1,
+						Size:         1000,
+						Seeders:      10,
+						Freeleech:    "100%",
+						DownloadLink: "https://blutopia.cc/torrent/download/1.token",
 					},
 				},
 				{

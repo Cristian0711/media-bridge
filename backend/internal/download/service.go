@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Cristian0711/media-bridge/backend/internal/indexer"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 )
 
@@ -44,21 +43,23 @@ type Service interface {
 	Add(ctx context.Context, request RequestDetails) (*AddResult, error)
 }
 
-type service struct {
-	indexerService interface {
-		DownloadTorrent(ctx context.Context, indexerID, downloadURL string) (string, error)
-	}
-	qbitService interface {
-		AddTorrent(ctx context.Context, file []byte, savePath, torrentName string) (*qbittorrent.AddTorrentResponse, error)
-		RemoveTorrent(ctx context.Context, hash string) error
-		ListTorrents(ctx context.Context) ([]qbittorrent.Torrent, error)
-	}
+// TorrentDownloader fetches a base64-encoded .torrent payload from the indexer
+// that owns the given download URL. Implemented by *indexer.Service.
+type TorrentDownloader interface {
+	DownloadTorrent(ctx context.Context, indexerID, downloadURL string) (string, error)
 }
 
-func NewService(indexerService *indexer.Service, qbitService qbittorrent.Service) Service {
+type service struct {
+	indexerService TorrentDownloader
+	qbitService    qbittorrent.Service
+	downloadsPath  string
+}
+
+func NewService(indexerService TorrentDownloader, qbitService qbittorrent.Service, downloadsPath string) Service {
 	return &service{
 		indexerService: indexerService,
 		qbitService:    qbitService,
+		downloadsPath:  downloadsPath,
 	}
 }
 
@@ -73,10 +74,7 @@ func (s *service) Add(ctx context.Context, request RequestDetails) (*AddResult, 
 		return nil, fmt.Errorf("decode torrent payload: %w", err)
 	}
 
-	savePath := "/mnt/plexmedia/downloads"
-	if request.Type == "show_download" {
-		savePath = "/mnt/plexmedia/downloads/"
-	}
+	savePath := s.downloadsPath
 	addResp, err := s.qbitService.AddTorrent(ctx, torrentBytes, savePath, request.TorrentName)
 	if err != nil && !errors.Is(err, qbittorrent.ErrTorrentExists) {
 		return nil, fmt.Errorf("add torrent to qbittorrent: %w", err)

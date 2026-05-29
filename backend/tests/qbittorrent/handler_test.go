@@ -15,14 +15,14 @@ import (
 )
 
 type qbitServiceStub struct {
-	addFn            func(ctx context.Context, file []byte, savePath, torrentName string) (*qbit.AddTorrentResponse, error)
-	removeFn         func(ctx context.Context, hash string) error
-	listFn           func(ctx context.Context) ([]qbit.Torrent, error)
-	listPaginatedFn  func(ctx context.Context, page, pageSize int) (*qbit.PaginatedTorrentsResponse, error)
-	filesFn          func(ctx context.Context, hash string) ([]qbit.TorrentFile, error)
-	statusFn         func(ctx context.Context, hash string) (*qbit.TorrentStatusResponse, error)
-	torrentsByHashFn func(ctx context.Context) (map[string]qbit.Torrent, error)
-	getTorrentFn       func(ctx context.Context, hash string) (*qbit.Torrent, error)
+	addFn                 func(ctx context.Context, file []byte, savePath, torrentName string) (*qbit.AddTorrentResponse, error)
+	removeFn              func(ctx context.Context, hash string) error
+	listFn                func(ctx context.Context) ([]qbit.Torrent, error)
+	listPaginatedFn       func(ctx context.Context, page, pageSize int) (*qbit.PaginatedTorrentsResponse, error)
+	filesFn               func(ctx context.Context, hash string) ([]qbit.TorrentFile, error)
+	statusFn              func(ctx context.Context, hash string) (*qbit.TorrentStatusResponse, error)
+	torrentsByHashFn      func(ctx context.Context) (map[string]qbit.Torrent, error)
+	getTorrentFn          func(ctx context.Context, hash string) (*qbit.Torrent, error)
 	readyForLibraryFn     func(ctx context.Context, t qbit.Torrent, shouldCount func(name string, size int64) bool) (bool, error)
 	filesCompleteByHashFn func(ctx context.Context, hashes []string, shouldCount func(name string, size int64) bool) (map[string]bool, error)
 }

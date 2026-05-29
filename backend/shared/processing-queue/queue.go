@@ -33,7 +33,6 @@ package processingqueue
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -132,21 +131,12 @@ func (q *Queue[T]) HasJobForPayloadField(ctx context.Context, field string, valu
 
 // Enqueue adds a new job to the back of the queue.
 func (q *Queue[T]) Enqueue(ctx context.Context, payload T) error {
-	data, err := json.Marshal(payload)
+	args, err := enqueueArgs(q.name, q.opts, payload)
 	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+		return err
 	}
-	sql := fmt.Sprintf(`
-		INSERT INTO %s (queue_name, payload, max_attempts, retry_after)
-		VALUES ($1, $2, $3, $4)
-	`, q.opts.Table)
-	_, err = q.db.Exec(ctx, sql,
-		q.name,
-		data,
-		q.opts.MaxAttempts,
-		q.opts.RetryAfter.Microseconds(), // store as µs bigint
-	)
-	if err != nil {
+	sql := buildEnqueueSQL(q.opts.Table, [4]string{"$1", "$2", "$3", "$4"})
+	if _, err := q.db.Exec(ctx, sql, args...); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}
 	return nil

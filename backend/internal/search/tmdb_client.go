@@ -43,25 +43,25 @@ func newTMDBClient(cfg TMDBConfig) *tmdbClient {
 }
 
 type tmdbMultiSearchResponse struct {
-	Page         int              `json:"page"`
+	Page         int               `json:"page"`
 	Results      []tmdbMultiResult `json:"results"`
-	TotalPages   int              `json:"total_pages"`
-	TotalResults int              `json:"total_results"`
+	TotalPages   int               `json:"total_pages"`
+	TotalResults int               `json:"total_results"`
 }
 
 type tmdbMultiResult struct {
-	ID               int     `json:"id"`
-	MediaType        string  `json:"media_type"`
-	Title            string  `json:"title"`
-	Name             string  `json:"name"`
-	OriginalTitle    string  `json:"original_title"`
-	OriginalName     string  `json:"original_name"`
-	Overview         string  `json:"overview"`
-	Popularity       float64 `json:"popularity"`
-	PosterPath       string  `json:"poster_path"`
-	ReleaseDate      string  `json:"release_date"`
-	FirstAirDate     string  `json:"first_air_date"`
-	Adult            bool    `json:"adult"`
+	ID            int     `json:"id"`
+	MediaType     string  `json:"media_type"`
+	Title         string  `json:"title"`
+	Name          string  `json:"name"`
+	OriginalTitle string  `json:"original_title"`
+	OriginalName  string  `json:"original_name"`
+	Overview      string  `json:"overview"`
+	Popularity    float64 `json:"popularity"`
+	PosterPath    string  `json:"poster_path"`
+	ReleaseDate   string  `json:"release_date"`
+	FirstAirDate  string  `json:"first_air_date"`
+	Adult         bool    `json:"adult"`
 }
 
 type tmdbMovieExternalIDs struct {
@@ -121,7 +121,7 @@ func (c *tmdbClient) get(ctx context.Context, path string, dest any) error {
 		c.log.Error("tmdb request failed", zap.String("url", u), zap.Error(err))
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -206,10 +206,10 @@ func tmdbPosterURLs(path string) []string {
 }
 
 type tmdbPagedResults struct {
-	Page         int                 `json:"page"`
-	Results      []tmdbMultiResult   `json:"results"`
-	TotalPages   int                 `json:"total_pages"`
-	TotalResults int                 `json:"total_results"`
+	Page         int               `json:"page"`
+	Results      []tmdbMultiResult `json:"results"`
+	TotalPages   int               `json:"total_pages"`
+	TotalResults int               `json:"total_results"`
 }
 
 type tmdbMovieRow struct {
@@ -272,30 +272,6 @@ func (c *tmdbClient) trendingTVWeek(ctx context.Context, page int) (*tmdbTVListR
 	}
 	var out tmdbTVListResponse
 	path := fmt.Sprintf("/trending/tv/week?language=en-US&page=%d", page)
-	if err := c.get(ctx, path, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *tmdbClient) moviePopular(ctx context.Context, page int) (*tmdbMovieListResponse, error) {
-	if page < 1 {
-		page = 1
-	}
-	var out tmdbMovieListResponse
-	path := fmt.Sprintf("/movie/popular?language=en-US&page=%d", page)
-	if err := c.get(ctx, path, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *tmdbClient) tvPopular(ctx context.Context, page int) (*tmdbTVListResponse, error) {
-	if page < 1 {
-		page = 1
-	}
-	var out tmdbTVListResponse
-	path := fmt.Sprintf("/tv/popular?language=en-US&page=%d", page)
 	if err := c.get(ctx, path, &out); err != nil {
 		return nil, err
 	}
@@ -377,9 +353,9 @@ func tmdbMoviesToResults(raw []tmdbMovieRow) []Result {
 			title = r.OriginalTitle
 		}
 		m := Movie{
-			Title: title,
-			Year:  yearFromDate(r.ReleaseDate),
-			IDs:   MovieIDs{TMDB: r.ID},
+			Title:  title,
+			Year:   yearFromDate(r.ReleaseDate),
+			IDs:    MovieIDs{TMDB: r.ID},
 			Images: MovieImages{Poster: tmdbPosterURLs(r.PosterPath)},
 		}
 		out = append(out, Result{Type: "movie", Score: r.Popularity, Movie: &m})
@@ -398,9 +374,9 @@ func tmdbTVShowsToResults(raw []tmdbTVRow) []Result {
 			title = r.OriginalName
 		}
 		s := Show{
-			Title: title,
-			Year:  yearFromDate(r.FirstAirDate),
-			IDs:   ShowIDs{TMDB: r.ID},
+			Title:  title,
+			Year:   yearFromDate(r.FirstAirDate),
+			IDs:    ShowIDs{TMDB: r.ID},
 			Images: ShowImages{Poster: tmdbPosterURLs(r.PosterPath)},
 		}
 		out = append(out, Result{Type: "show", Score: r.Popularity, Show: &s})

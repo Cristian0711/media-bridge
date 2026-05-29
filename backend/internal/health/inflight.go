@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 
+	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"gorm.io/gorm"
 )
 
@@ -14,7 +15,7 @@ func inFlightMediaIDs(ctx context.Context, db *gorm.DB) (map[uint]struct{}, erro
 	if err := db.WithContext(ctx).
 		Table("requests").
 		Where("media_id > 0").
-		Where("status IN ?", []string{"pending", "queued", "downloading", "removing"}).
+		Where("status IN ?", inFlightStatuses).
 		Distinct().
 		Pluck("media_id", &fromRequests).Error; err != nil {
 		return nil, err
@@ -46,8 +47,8 @@ func hasInFlightDownloadRequests(ctx context.Context, db *gorm.DB) (bool, error)
 	var n int64
 	err := db.WithContext(ctx).
 		Table("requests").
-		Where("type IN ?", []string{"movie_download", "show_download"}).
-		Where("status IN ?", []string{"pending", "queued", "downloading"}).
+		Where("type IN ?", pipeline.DownloadTypes).
+		Where("status IN ?", []string{pipeline.StatusPending, pipeline.StatusQueued, pipeline.StatusDownloading}).
 		Count(&n).Error
 	return n > 0, err
 }

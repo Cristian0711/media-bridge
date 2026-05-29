@@ -101,7 +101,7 @@ func (s *Service) run(ctx context.Context, includeFS bool) Report {
 		checks = append(checks, s.checkFilesystem(fsCtx)...)
 	}
 
-	status := aggregateStatus(checks)
+	status := AggregateStatus(checks)
 	return Report{Status: status, CheckedAt: checkedAt, Checks: checks}
 }
 
@@ -147,7 +147,7 @@ func (s *Service) checkQBittorrentWithTorrents(ctx context.Context) (map[string]
 	}
 	return byHash, Check{
 		ID: "qbittorrent", Name: "qBittorrent", Status: CheckOK,
-		Message: fmt.Sprintf("reachable (%d plexmedia torrents)", len(byHash)),
+		Message:    fmt.Sprintf("reachable (%d plexmedia torrents)", len(byHash)),
 		DurationMS: time.Since(start).Milliseconds(),
 		Details:    map[string]any{"torrent_count": len(byHash)},
 	}
@@ -167,29 +167,29 @@ func (s *Service) checkFilesystem(ctx context.Context) []Check {
 	showsRoot := s.cfg.ShowsPath
 	downloadsRoot := s.cfg.DownloadsPath
 
-	moviesAudit := auditRoot(ctx, libraryRoot, "library_movies", ex)
-	showsAudit := auditRoot(ctx, showsRoot, "library_shows", ex)
-	downloadsAudit := auditRoot(ctx, downloadsRoot, "downloads", ex)
+	moviesAudit := AuditRoot(ctx, libraryRoot, "library_movies", ex)
+	showsAudit := AuditRoot(ctx, showsRoot, "library_shows", ex)
+	downloadsAudit := AuditRoot(ctx, downloadsRoot, "downloads", ex)
 
-	libMovies := fsResultToCheck("fs_movies_hardlinks", "Movies library hardlinks", moviesAudit)
-	libShows := fsResultToCheck("fs_shows_hardlinks", "Shows library hardlinks", showsAudit)
-	dlCheck := fsResultToCheck("fs_download_hardlinks", "Downloads folder hardlinks", downloadsAudit)
+	libMovies := FSResultToCheck("fs_movies_hardlinks", "Movies library hardlinks", moviesAudit)
+	libShows := FSResultToCheck("fs_shows_hardlinks", "Shows library hardlinks", showsAudit)
+	dlCheck := FSResultToCheck("fs_download_hardlinks", "Downloads folder hardlinks", downloadsAudit)
 
 	meta := Check{
 		ID: "fs_exclusions", Name: "In-flight path exclusions", Status: CheckOK,
-		Message: fmt.Sprintf("%d media rows excluded from nlink audit", ex.InFlightMedia),
+		Message:    fmt.Sprintf("%d media rows excluded from nlink audit", ex.InFlightMedia),
 		DurationMS: time.Since(start).Milliseconds(),
 		Details: map[string]any{
-			"in_flight_media":  ex.InFlightMedia,
-			"prefix_count":     len(ex.Prefixes),
-			"by_reason":        ex.ByReason,
-			"removing_dest":    len(ex.RemovingDest),
+			"in_flight_media": ex.InFlightMedia,
+			"prefix_count":    len(ex.Prefixes),
+			"by_reason":       ex.ByReason,
+			"removing_dest":   len(ex.RemovingDest),
 		},
 	}
 	return []Check{meta, libMovies, libShows, dlCheck}
 }
 
-func aggregateStatus(checks []Check) string {
+func AggregateStatus(checks []Check) string {
 	hasFail := false
 	hasWarn := false
 	for _, c := range checks {

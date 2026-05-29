@@ -9,9 +9,9 @@ import (
 )
 
 type queueCounts struct {
-	QueueName  string `gorm:"column:queue_name"`
-	Status     string `gorm:"column:status"`
-	Count      int64  `gorm:"column:count"`
+	QueueName string `gorm:"column:queue_name"`
+	Status    string `gorm:"column:status"`
+	Count     int64  `gorm:"column:count"`
 }
 
 func checkQueues(ctx context.Context, db *gorm.DB) Check {
@@ -99,6 +99,6 @@ func checkPipeline(ctx context.Context, db *gorm.DB) Check {
 	return Check{
 		ID: "request_pipeline", Name: "Request pipeline", Status: status, Message: msg,
 		DurationMS: time.Since(start).Milliseconds(),
-		Details: map[string]any{"by_status": byStatus},
+		Details:    map[string]any{"by_status": byStatus},
 	}
 }

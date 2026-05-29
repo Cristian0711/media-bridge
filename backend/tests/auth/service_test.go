@@ -13,10 +13,10 @@ import (
 )
 
 type authRepoStub struct {
-	createKeyFn   func(ctx context.Context, value string) (*auth.Key, error)
-	findKeyFn     func(ctx context.Context, value string) (*auth.Key, error)
-	listKeysFn    func(ctx context.Context) ([]auth.Key, error)
-	disableKeyFn  func(ctx context.Context, value string) error
+	createKeyFn  func(ctx context.Context, value string) (*auth.Key, error)
+	findKeyFn    func(ctx context.Context, value string) (*auth.Key, error)
+	listKeysFn   func(ctx context.Context) ([]auth.Key, error)
+	disableKeyFn func(ctx context.Context, value string) error
 }
 
 func (r *authRepoStub) CreateKey(ctx context.Context, value string) (*auth.Key, error) {
@@ -74,9 +74,9 @@ func TestRegisterPaths(t *testing.T) {
 		t.Parallel()
 		svc := auth.NewService(
 			&authRepoStub{
-				findKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, gorm.ErrRecordNotFound },
+				findKeyFn:    func(context.Context, string) (*auth.Key, error) { return nil, gorm.ErrRecordNotFound },
 				disableKeyFn: func(context.Context, string) error { return nil },
-				createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+				createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
 			},
 			&usersSvcStub{},
 			auth.NewJWTManager("secret"),
@@ -91,9 +91,9 @@ func TestRegisterPaths(t *testing.T) {
 		t.Parallel()
 		svc := auth.NewService(
 			&authRepoStub{
-				findKeyFn: func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
+				findKeyFn:    func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
 				disableKeyFn: func(context.Context, string) error { return nil },
-				createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+				createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
 			},
 			&usersSvcStub{
 				findByUsernameFn: func(context.Context, string) (*users.User, error) { return &users.User{ID: 1}, nil },
@@ -110,9 +110,9 @@ func TestRegisterPaths(t *testing.T) {
 		t.Parallel()
 		svc := auth.NewService(
 			&authRepoStub{
-				findKeyFn: func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
+				findKeyFn:    func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
 				disableKeyFn: func(context.Context, string) error { return nil },
-				createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+				createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
 			},
 			&usersSvcStub{
 				findByUsernameFn: func(context.Context, string) (*users.User, error) { return nil, users.ErrNotFound },
@@ -136,9 +136,9 @@ func TestRegisterSuccessNormalizesAndDisablesKey(t *testing.T) {
 
 	svc := auth.NewService(
 		&authRepoStub{
-			findKeyFn: func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
+			findKeyFn:    func(context.Context, string) (*auth.Key, error) { return &auth.Key{Value: "k", IsActive: true}, nil },
 			disableKeyFn: func(_ context.Context, value string) error { disabled = value; return nil },
-			createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+			createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
 		},
 		&usersSvcStub{
 			countFn:          func(context.Context) (int64, error) { return 1, nil },
@@ -175,8 +175,8 @@ func TestLoginAndValidateToken(t *testing.T) {
 	}
 	svc := auth.NewService(
 		&authRepoStub{
-			createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
-			findKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+			createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
+			findKeyFn:    func(context.Context, string) (*auth.Key, error) { return nil, nil },
 			disableKeyFn: func(context.Context, string) error { return nil },
 		},
 		&usersSvcStub{
@@ -204,8 +204,8 @@ func TestLoginInvalidCredentials(t *testing.T) {
 	t.Parallel()
 	svc := auth.NewService(
 		&authRepoStub{
-			createKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
-			findKeyFn: func(context.Context, string) (*auth.Key, error) { return nil, nil },
+			createKeyFn:  func(context.Context, string) (*auth.Key, error) { return nil, nil },
+			findKeyFn:    func(context.Context, string) (*auth.Key, error) { return nil, nil },
 			disableKeyFn: func(context.Context, string) error { return nil },
 		},
 		&usersSvcStub{
@@ -250,7 +250,9 @@ func TestGenerateKeyAndGetStatus(t *testing.T) {
 	t.Parallel()
 	svc := auth.NewService(
 		&authRepoStub{
-			createKeyFn: func(_ context.Context, value string) (*auth.Key, error) { return &auth.Key{Value: value, IsActive: true}, nil },
+			createKeyFn: func(_ context.Context, value string) (*auth.Key, error) {
+				return &auth.Key{Value: value, IsActive: true}, nil
+			},
 			findKeyFn: func(_ context.Context, value string) (*auth.Key, error) {
 				if value == "missing" {
 					return nil, gorm.ErrRecordNotFound

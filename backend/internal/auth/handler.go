@@ -67,4 +67,3 @@ func (h *Handler) ValidateToken(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, resp)
 }
-

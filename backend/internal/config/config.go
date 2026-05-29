@@ -12,8 +12,9 @@ type AppConfig struct {
 	DatabaseURL string
 	JWTSecret   string
 
-	MoviesPath string
-	ShowsPath  string
+	MoviesPath    string
+	ShowsPath     string
+	DownloadsPath string
 
 	QueueWorkers QueueWorkersConfig
 
@@ -73,11 +74,12 @@ type BlutopiaConfig struct {
 
 func Load() (*AppConfig, error) {
 	cfg := &AppConfig{
-		Port:        get("PORT", "8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		JWTSecret:   os.Getenv("JWT_SECRET"),
-		MoviesPath:  get("MOVIES_PATH", "/mnt/plexmedia/movies"),
-		ShowsPath:   get("SHOWS_PATH", "/mnt/plexmedia/shows"),
+		Port:          get("PORT", "8080"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		JWTSecret:     os.Getenv("JWT_SECRET"),
+		MoviesPath:    get("MOVIES_PATH", "/mnt/plexmedia/movies"),
+		ShowsPath:     get("SHOWS_PATH", "/mnt/plexmedia/shows"),
+		DownloadsPath: get("DOWNLOADS_PATH", "/mnt/plexmedia/downloads"),
 		QueueWorkers: QueueWorkersConfig{
 			Requests: getInt("REQUESTS_QUEUE_WORKERS", 1),
 			Download: getInt("DOWNLOAD_QUEUE_WORKERS", 2),

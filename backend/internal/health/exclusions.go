@@ -6,18 +6,28 @@ import (
 	"strings"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
+	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"gorm.io/gorm"
 )
 
-type pathExclusions struct {
+// inFlightStatuses are request statuses that mean a media row still has active
+// download/remove work and must be excluded from filesystem audits.
+var inFlightStatuses = []string{
+	pipeline.StatusPending,
+	pipeline.StatusQueued,
+	pipeline.StatusDownloading,
+	pipeline.StatusRemoving,
+}
+
+type PathExclusions struct {
 	Prefixes      []string
 	RemovingDest  []string
 	InFlightMedia int
 	ByReason      map[string]int
 }
 
-func collectExclusions(ctx context.Context, db *gorm.DB, mediaSvc media.Service) (pathExclusions, error) {
-	out := pathExclusions{ByReason: make(map[string]int)}
+func collectExclusions(ctx context.Context, db *gorm.DB, mediaSvc media.Service) (PathExclusions, error) {
+	out := PathExclusions{ByReason: make(map[string]int)}
 	seen := make(map[string]struct{})
 
 	add := func(prefix, reason string) {
@@ -38,7 +48,7 @@ func collectExclusions(ctx context.Context, db *gorm.DB, mediaSvc media.Service)
 	if err := db.WithContext(ctx).
 		Table("requests").
 		Where("media_id > 0").
-		Where("status IN ?", []string{"pending", "queued", "downloading", "removing"}).
+		Where("status IN ?", inFlightStatuses).
 		Distinct().
 		Pluck("media_id", &mediaIDs).Error; err != nil {
 		return out, err
@@ -48,7 +58,7 @@ func collectExclusions(ctx context.Context, db *gorm.DB, mediaSvc media.Service)
 	if err := db.WithContext(ctx).
 		Table("requests").
 		Where("media_id > 0").
-		Where("status = ?", "removing").
+		Where("status = ?", pipeline.StatusRemoving).
 		Distinct().
 		Pluck("media_id", &removingIDs).Error; err != nil {
 		return out, err

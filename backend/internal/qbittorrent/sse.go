@@ -2,13 +2,9 @@ package qbittorrent
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"sync"
 	"time"
 
-	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
+	"github.com/Cristian0711/media-bridge/backend/shared/ssehub"
 )
 
 type EventType string
@@ -18,7 +14,6 @@ const (
 	EventTypeTorrentRemoved EventType = "torrent_removed"
 	EventTypeTorrentUpdated EventType = "torrent_updated"
 	EventTypeHeartbeat      EventType = "heartbeat"
-	EventTypeConnected      EventType = "connected"
 )
 
 type TorrentEvent struct {
@@ -37,124 +32,28 @@ type TorrentEvent struct {
 	ETA        int64     `json:"eta,omitempty"`
 }
 
-type Client struct {
-	ID       string
-	Messages chan string
-	done     chan struct{}
-	once     sync.Once
-}
+// Client is one subscriber to the torrent event stream.
+type Client = ssehub.Client
 
-func NewClient(id string) *Client {
-	return &Client{
-		ID:       id,
-		Messages: make(chan string, 100),
-		done:     make(chan struct{}),
-	}
-}
+// NewClient allocates a buffered channel for outbound SSE frames.
+func NewClient(id string) *Client { return ssehub.NewClient(id) }
 
-func (c *Client) Close() {
-	c.once.Do(func() {
-		close(c.done)
-		close(c.Messages)
-	})
-}
-
+// Broker fans out torrent events to connected clients. It is a thin wrapper
+// over the shared ssehub.Hub.
 type Broker struct {
-	clients    map[string]*Client
-	clientsMux sync.RWMutex
-
-	addClient    chan *Client
-	removeClient chan string
-	broadcast    chan string
-	shutdown     chan struct{}
+	hub *ssehub.Hub
 }
 
+// NewBroker starts the broker goroutine. Call Shutdown on process exit.
 func NewBroker() *Broker {
-	b := &Broker{
-		clients:      make(map[string]*Client),
-		addClient:    make(chan *Client),
-		removeClient: make(chan string),
-		broadcast:    make(chan string, 100),
-		shutdown:     make(chan struct{}),
-	}
-	go b.run()
-	return b
+	return &Broker{hub: ssehub.New("qbittorrent.sse")}
 }
 
-func (b *Broker) run() {
-	log := logger.Named("qbittorrent.sse")
-	heartbeatTicker := time.NewTicker(30 * time.Second)
-	defer heartbeatTicker.Stop()
+// AddClient registers a subscriber.
+func (b *Broker) AddClient(c *Client) { b.hub.AddClient(c) }
 
-	for {
-		select {
-		case client := <-b.addClient:
-			b.clientsMux.Lock()
-			b.clients[client.ID] = client
-			b.clientsMux.Unlock()
-			log.Info("client connected",
-				zap.String("event", "client_connected"),
-				zap.String("client_id", client.ID),
-				zap.Int("clients", b.GetClientCount()),
-			)
-
-		case clientID := <-b.removeClient:
-			b.clientsMux.Lock()
-			if client, ok := b.clients[clientID]; ok {
-				client.Close()
-				delete(b.clients, clientID)
-				log.Info("client disconnected",
-					zap.String("event", "client_disconnected"),
-					zap.String("client_id", clientID),
-					zap.Int("clients", len(b.clients)),
-				)
-			}
-			b.clientsMux.Unlock()
-
-		case message := <-b.broadcast:
-			b.clientsMux.RLock()
-			for _, client := range b.clients {
-				select {
-				case client.Messages <- message:
-				default:
-					log.Warn("client queue full",
-						zap.String("event", "client_queue_full"),
-						zap.String("client_id", client.ID),
-					)
-				}
-			}
-			b.clientsMux.RUnlock()
-
-		case <-heartbeatTicker.C:
-			heartbeat := b.formatSSEMessage(EventTypeHeartbeat, map[string]any{"timestamp": time.Now().Unix()})
-			b.clientsMux.RLock()
-			for _, client := range b.clients {
-				select {
-				case client.Messages <- heartbeat:
-				default:
-				}
-			}
-			b.clientsMux.RUnlock()
-
-		case <-b.shutdown:
-			b.clientsMux.Lock()
-			for _, client := range b.clients {
-				client.Close()
-			}
-			b.clients = make(map[string]*Client)
-			b.clientsMux.Unlock()
-			return
-		}
-	}
-}
-
-func (b *Broker) AddClient(c *Client) {
-	b.addClient <- c
-}
-
-func (b *Broker) RemoveClient(id string) {
-	b.removeClient <- id
-}
+// RemoveClient disconnects a subscriber by ID.
+func (b *Broker) RemoveClient(id string) { b.hub.RemoveClient(id) }
 
 func (b *Broker) BroadcastTorrentAdded(t Torrent) {
 	b.broadcastEvent(TorrentEvent{
@@ -198,42 +97,15 @@ func (b *Broker) BroadcastTorrentUpdated(t Torrent) {
 	})
 }
 
-func (b *Broker) BroadcastConnected(data any) {
-	msg := b.formatSSEMessage(EventTypeConnected, data)
-	if msg == "" {
-		return
-	}
-	b.broadcast <- msg
-}
-
 func (b *Broker) broadcastEvent(event TorrentEvent) {
-	if b.GetClientCount() == 0 {
-		return
-	}
-	msg := b.formatSSEMessage(event.Type, event)
-	if msg == "" {
-		return
-	}
-	b.broadcast <- msg
+	b.hub.Publish(ssehub.Format(string(event.Type), event))
 }
 
-func (b *Broker) formatSSEMessage(eventType EventType, data any) string {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(jsonData))
-}
+// Shutdown closes all clients and stops the broker loop.
+func (b *Broker) Shutdown() { b.hub.Shutdown() }
 
-func (b *Broker) Shutdown() {
-	close(b.shutdown)
-}
-
-func (b *Broker) GetClientCount() int {
-	b.clientsMux.RLock()
-	defer b.clientsMux.RUnlock()
-	return len(b.clients)
-}
+// GetClientCount returns the number of active SSE connections.
+func (b *Broker) GetClientCount() int { return b.hub.ClientCount() }
 
 func StartTorrentMonitor(ctx context.Context, svc Service, broker *Broker, interval time.Duration) {
 	if interval <= 0 {

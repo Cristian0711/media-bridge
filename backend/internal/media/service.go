@@ -166,14 +166,7 @@ func (s *service) GetAllMediaPaginated(ctx context.Context, page, pageSize int) 
 	if err != nil {
 		return nil, err
 	}
-	return &PaginatedMediaResponse{
-		Media:          rows,
-		Page:           page,
-		PageSize:       pageSize,
-		TotalCount:     total,
-		TotalSizeBytes: totalSize,
-		TotalPages:     calcTotalPages(total, pageSize),
-	}, nil
+	return paginatedResponse(rows, total, totalSize, page, pageSize), nil
 }
 
 func (s *service) GetMediaForUserPaginated(ctx context.Context, userID uint, page, pageSize int) (*PaginatedMediaResponse, error) {
@@ -182,14 +175,7 @@ func (s *service) GetMediaForUserPaginated(ctx context.Context, userID uint, pag
 	if err != nil {
 		return nil, err
 	}
-	return &PaginatedMediaResponse{
-		Media:          rows,
-		Page:           page,
-		PageSize:       pageSize,
-		TotalCount:     total,
-		TotalSizeBytes: totalSize,
-		TotalPages:     calcTotalPages(total, pageSize),
-	}, nil
+	return paginatedResponse(rows, total, totalSize, page, pageSize), nil
 }
 
 func (s *service) GetMediaByID(ctx context.Context, id uint) (*Media, error) {
@@ -213,14 +199,7 @@ func (s *service) SearchMedia(ctx context.Context, query string, page, pageSize 
 	if err != nil {
 		return nil, err
 	}
-	return &PaginatedMediaResponse{
-		Media:          rows,
-		Page:           page,
-		PageSize:       pageSize,
-		TotalCount:     total,
-		TotalSizeBytes: totalSize,
-		TotalPages:     calcTotalPages(total, pageSize),
-	}, nil
+	return paginatedResponse(rows, total, totalSize, page, pageSize), nil
 }
 
 func (s *service) SearchMediaForUser(ctx context.Context, userID uint, query string, page, pageSize int) (*PaginatedMediaResponse, error) {
@@ -233,14 +212,7 @@ func (s *service) SearchMediaForUser(ctx context.Context, userID uint, query str
 	if err != nil {
 		return nil, err
 	}
-	return &PaginatedMediaResponse{
-		Media:          rows,
-		Page:           page,
-		PageSize:       pageSize,
-		TotalCount:     total,
-		TotalSizeBytes: totalSize,
-		TotalPages:     calcTotalPages(total, pageSize),
-	}, nil
+	return paginatedResponse(rows, total, totalSize, page, pageSize), nil
 }
 
 func (s *service) createShow(ctx context.Context, input CreateFromRequestInput) (uint, error) {
@@ -312,64 +284,62 @@ func derefSizeBytes(v *int64) int64 {
 }
 
 func (s *service) removeMovie(ctx context.Context, input CreateFromRequestInput) error {
-	log := logger.Named("media.remove")
-	if input.MediaID == 0 {
-		return fmt.Errorf("movie removal requires media_id")
-	}
-	mediaRow, err := s.repo.FindByID(ctx, input.MediaID)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			log.Info("movie remove skipped: media not found", zap.Uint("media_id", input.MediaID))
-			return nil
+	return s.removeMedia(ctx, "movie", input.MediaID, func(ctx context.Context, row *Media) (zap.Field, error) {
+		if row.MovieID == nil {
+			return zap.Skip(), fmt.Errorf("media %d is not linked to a movie", row.ID)
 		}
-		return err
-	}
-	if mediaRow.MovieID == nil {
-		return fmt.Errorf("media %d is not linked to a movie", input.MediaID)
-	}
-	s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(mediaRow))
-	if err := s.repo.DeleteMovieMediaCascade(ctx, input.MediaID, *mediaRow.MovieID); err != nil {
-		return err
-	}
-	log.Info("removed media row",
-		zap.Uint("media_id", mediaRow.ID),
-		zap.String("media_type", string(mediaRow.Type)),
-		zap.String("name", mediaRow.Name),
-		zap.Uint("movie_id", *mediaRow.MovieID),
-	)
-	return nil
+		s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(row))
+		if err := s.repo.DeleteMovieMediaCascade(ctx, row.ID, *row.MovieID); err != nil {
+			return zap.Skip(), err
+		}
+		return zap.Uint("movie_id", *row.MovieID), nil
+	})
 }
 
 func (s *service) removeShow(ctx context.Context, input CreateFromRequestInput) error {
+	return s.removeMedia(ctx, "show", input.MediaID, func(ctx context.Context, row *Media) (zap.Field, error) {
+		if row.ShowEntryID == nil {
+			return zap.Skip(), fmt.Errorf("media %d is not linked to a show entry", row.ID)
+		}
+		s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(row))
+		if err := s.repo.DeleteShowMediaCascade(ctx, row.ID, *row.ShowEntryID); err != nil {
+			return zap.Skip(), err
+		}
+		return zap.Uint("show_entry_id", *row.ShowEntryID), nil
+	})
+}
+
+// removeMedia is the shared skeleton for movie/show removal: it validates the
+// id, loads the row (treating a missing row as already-removed success), then
+// delegates linkage validation + SSE publish + cascade delete to remove, which
+// returns the type-specific log field.
+func (s *service) removeMedia(
+	ctx context.Context,
+	kind string,
+	mediaID uint,
+	remove func(ctx context.Context, row *Media) (zap.Field, error),
+) error {
 	log := logger.Named("media.remove")
-	if input.MediaID == 0 {
-		return fmt.Errorf("show removal requires media_id")
+	if mediaID == 0 {
+		return fmt.Errorf("%s removal requires media_id", kind)
 	}
-	mediaRow, err := s.repo.FindByID(ctx, input.MediaID)
+	mediaRow, err := s.repo.FindByID(ctx, mediaID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			log.Info("show remove skipped: media not found", zap.Uint("media_id", input.MediaID))
+			log.Info(kind+" remove skipped: media not found", zap.Uint("media_id", mediaID))
 			return nil
 		}
 		return err
 	}
-	if mediaRow.ShowEntryID == nil {
-		return fmt.Errorf("media %d is not linked to a show entry", input.MediaID)
-	}
-
-	s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(mediaRow))
-	showID := uint(0)
-	if mediaRow.ShowEntry != nil && mediaRow.ShowEntry.ShowID != 0 {
-		showID = mediaRow.ShowEntry.ShowID
-	}
-	if err := s.repo.DeleteShowMediaCascade(ctx, input.MediaID, *mediaRow.ShowEntryID, showID); err != nil {
+	idField, err := remove(ctx, mediaRow)
+	if err != nil {
 		return err
 	}
 	log.Info("removed media row",
 		zap.Uint("media_id", mediaRow.ID),
 		zap.String("media_type", string(mediaRow.Type)),
 		zap.String("name", mediaRow.Name),
-		zap.Uint("show_entry_id", *mediaRow.ShowEntryID),
+		idField,
 	)
 	return nil
 }
@@ -387,11 +357,15 @@ func (s *service) emitMediaAdded(ctx context.Context, mediaID uint) {
 	s.publisher.PublishMediaAdded(ctx, ToSSEPayload(row))
 }
 
-func mediaString[T any](src *T, extract func(*T) string) string {
-	if src == nil {
-		return ""
+func paginatedResponse(rows []Media, total, totalSize int64, page, pageSize int) *PaginatedMediaResponse {
+	return &PaginatedMediaResponse{
+		Media:          rows,
+		Page:           page,
+		PageSize:       pageSize,
+		TotalCount:     total,
+		TotalSizeBytes: totalSize,
+		TotalPages:     calcTotalPages(total, pageSize),
 	}
-	return extract(src)
 }
 
 func normalizePagination(page, pageSize int) (int, int) {

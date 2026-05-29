@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/users"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )

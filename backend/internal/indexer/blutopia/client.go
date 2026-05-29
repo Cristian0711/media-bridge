@@ -36,21 +36,21 @@ type torrentResource struct {
 }
 
 type torrentAttributes struct {
-	Name            string  `json:"name"`
-	Category        string  `json:"category"`
-	CategoryID      int     `json:"category_id"`
-	Type            string  `json:"type"`
-	Resolution      string  `json:"resolution"`
-	Size            int64   `json:"size"`
-	Seeders         int     `json:"seeders"`
-	Leechers        int     `json:"leechers"`
-	TimesCompleted  int     `json:"times_completed"`
-	IMDBID          *int    `json:"imdb_id"`
-	TMDBID          *int    `json:"tmdb_id"`
-	TVDBID          *int    `json:"tvdb_id"`
-	Freeleech       string  `json:"freeleech"`
-	CreatedAt       string  `json:"created_at"`
-	DownloadLink    string  `json:"download_link"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	CategoryID     int    `json:"category_id"`
+	Type           string `json:"type"`
+	Resolution     string `json:"resolution"`
+	Size           int64  `json:"size"`
+	Seeders        int    `json:"seeders"`
+	Leechers       int    `json:"leechers"`
+	TimesCompleted int    `json:"times_completed"`
+	IMDBID         *int   `json:"imdb_id"`
+	TMDBID         *int   `json:"tmdb_id"`
+	TVDBID         *int   `json:"tvdb_id"`
+	Freeleech      string `json:"freeleech"`
+	CreatedAt      string `json:"created_at"`
+	DownloadLink   string `json:"download_link"`
 }
 
 func NewClient(cfg Config) *Client {
@@ -102,7 +102,7 @@ func (c *Client) FilterFreeleech(ctx context.Context, imdbID string) ([]torrentR
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -141,7 +141,7 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) (strin
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("blutopia download failed: %s — %s", resp.Status, truncateBody(body))

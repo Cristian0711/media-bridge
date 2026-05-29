@@ -25,20 +25,20 @@ type Envelope struct {
 
 // MediaPayload mirrors the media API JSON shape for live updates.
 type MediaPayload struct {
-	ID        uint                `json:"id"`
-	Type      string              `json:"type"`
-	Name      string              `json:"name"`
-	Path      string              `json:"path"`
-	Indexer   string              `json:"indexer"`
-	Quality   string              `json:"quality"`
-	SizeBytes int64               `json:"size_bytes,omitempty"`
-	UserID    uint                `json:"user_id"`
-	Username  string              `json:"username"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
-	MovieID   *uint               `json:"movie_id,omitempty"`
-	ShowEntry *ShowEntryPayload   `json:"show_entry,omitempty"`
-	Movie     *MoviePayload       `json:"movie,omitempty"`
+	ID        uint              `json:"id"`
+	Type      string            `json:"type"`
+	Name      string            `json:"name"`
+	Path      string            `json:"path"`
+	Indexer   string            `json:"indexer"`
+	Quality   string            `json:"quality"`
+	SizeBytes int64             `json:"size_bytes,omitempty"`
+	UserID    uint              `json:"user_id"`
+	Username  string            `json:"username"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	MovieID   *uint             `json:"movie_id,omitempty"`
+	ShowEntry *ShowEntryPayload `json:"show_entry,omitempty"`
+	Movie     *MoviePayload     `json:"movie,omitempty"`
 }
 
 type MoviePayload struct {

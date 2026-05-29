@@ -45,6 +45,18 @@ func Bootstrap() (*Server, error) {
 	userRepo := users.NewRepository(db)
 	authRepo := auth.NewRepository(db)
 
+	// Root context for all long-lived background workers. Cancelled by
+	// Server.Shutdown so queues, watchers, schedulers and the torrent monitor
+	// stop cleanly on process exit. On a failed bootstrap the deferred cancel
+	// avoids leaking the context; on success ownership passes to the Server.
+	ctx, cancel := context.WithCancel(context.Background())
+	bootstrapped := false
+	defer func() {
+		if !bootstrapped {
+			cancel()
+		}
+	}()
+
 	// Single broker for app-wide media + request events (see internal/sse).
 	appSSEBroker := sse.NewBroker()
 	eventPublisher := sse.NewPublisher(appSSEBroker)
@@ -74,7 +86,7 @@ func Bootstrap() (*Server, error) {
 	downloadProcessor, err := download.NewProcessor(
 		cfg.DatabaseURL,
 		requestssource.NewDownloadSource(requestsRepo),
-		download.NewService(indexerSvc, qbitSvc),
+		download.NewService(indexerSvc, qbitSvc, cfg.DownloadsPath),
 		mediaSvc,
 		hardlinkProcessor,
 		requestsRepo,
@@ -84,7 +96,7 @@ func Bootstrap() (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download queue: %w", err)
 	}
-	downloadProcessor.Start(context.Background(), cfg.QueueWorkers.Download)
+	downloadProcessor.Start(ctx, cfg.QueueWorkers.Download)
 
 	removeProcessor, err := remove.NewProcessor(
 		cfg.DatabaseURL,
@@ -99,25 +111,25 @@ func Bootstrap() (*Server, error) {
 	}
 	hardlinkProcessor.SetRemoveGuard(removeProcessor)
 
-	hardlinkProcessor.Start(context.Background(), cfg.QueueWorkers.Hardlink)
-	removeProcessor.Start(context.Background(), cfg.QueueWorkers.Remove)
+	hardlinkProcessor.Start(ctx, cfg.QueueWorkers.Hardlink)
+	removeProcessor.Start(ctx, cfg.QueueWorkers.Remove)
 
 	requestsProcessor, err := requests.NewQueueProcessor(cfg.DatabaseURL, requestsRepo, downloadProcessor, removeProcessor)
 	if err != nil {
 		return nil, fmt.Errorf("requests queue: %w", err)
 	}
-	requestsProcessor.Start(context.Background(), cfg.QueueWorkers.Requests)
-	requests.NewReconciler(requestsRepo, requestsProcessor, downloadProcessor, removeProcessor).Start(context.Background())
+	requestsProcessor.Start(ctx, cfg.QueueWorkers.Requests)
+	requests.NewReconciler(requestsRepo, requestsProcessor, downloadProcessor, removeProcessor).Start(ctx)
 	requests.NewDownloadCompletionWatcher(
 		requestsRepo,
 		hardlinkSvc,
 		qbitSvc,
 		5*time.Second,
-	).Start(context.Background())
+	).Start(ctx)
 	requestsSvc := requests.NewService(requestsRepo, mediaRepo, requestsProcessor, mediaSvc, qbitSvc, hardlinkSvc)
 	qbitBroker := qbittorrent.NewBroker()
 	qbittorrent.StartTorrentMonitor(
-		context.Background(),
+		ctx,
 		qbitSvc,
 		qbitBroker,
 		2*time.Second,
@@ -127,16 +139,16 @@ func Bootstrap() (*Server, error) {
 		BaseURL: cfg.TMDB.URL,
 		APIKey:  cfg.TMDB.APIKey,
 	})
-	search.NewBrowseWarmer(searchSvc).Start(context.Background())
+	search.NewBrowseWarmer(searchSvc).Start(ctx)
 
 	healthRepo := health.NewRepository(db)
 	healthCfg := health.Config{
 		MoviesPath:    cfg.MoviesPath,
 		ShowsPath:     cfg.ShowsPath,
-		DownloadsPath: "/mnt/plexmedia/downloads",
+		DownloadsPath: cfg.DownloadsPath,
 	}
 	healthSvc := health.NewService(db, healthRepo, mediaSvc, qbitSvc, healthCfg)
-	health.NewScheduler(healthSvc, healthRepo).Start(context.Background())
+	health.NewScheduler(healthSvc, healthRepo).Start(ctx)
 
 	router := newRouter(
 		auth.NewHandler(authSvc),
@@ -150,7 +162,8 @@ func Bootstrap() (*Server, error) {
 		health.NewHandler(healthSvc),
 	)
 
-	return newServer(cfg.Port, router), nil
+	bootstrapped = true
+	return newServer(cfg.Port, router, cancel, appSSEBroker.Shutdown, qbitBroker.Shutdown), nil
 }
 
 func connectDB(cfg *config.AppConfig) (*gorm.DB, error) {

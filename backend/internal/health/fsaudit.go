@@ -13,20 +13,20 @@ const (
 	maxFilesPerWalk     = 250_000
 )
 
-type fsAuditResult struct {
-	Zone           string
-	Root           string
-	FilesScanned   int
-	FilesOK        int
-	FilesExcluded  int
-	FilesSkipped   int
-	Issues         []LinkIssue
-	IssueCount     int
-	Truncated      bool
+type FSAuditResult struct {
+	Zone          string
+	Root          string
+	FilesScanned  int
+	FilesOK       int
+	FilesExcluded int
+	FilesSkipped  int
+	Issues        []LinkIssue
+	IssueCount    int
+	Truncated     bool
 }
 
-func auditRoot(ctx context.Context, root, zone string, ex pathExclusions) fsAuditResult {
-	res := fsAuditResult{Zone: zone, Root: root}
+func AuditRoot(ctx context.Context, root, zone string, ex PathExclusions) FSAuditResult {
+	res := FSAuditResult{Zone: zone, Root: root}
 	info, err := os.Stat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -76,7 +76,7 @@ func auditRoot(ctx context.Context, root, zone string, ex pathExclusions) fsAudi
 		res.FilesScanned++
 
 		cleanPath := filepath.Clean(path)
-		excluded := pathHasPrefix(cleanPath, ex.Prefixes)
+		excluded := PathHasPrefix(cleanPath, ex.Prefixes)
 		if excluded {
 			res.FilesExcluded++
 			return nil
@@ -102,7 +102,7 @@ func auditRoot(ctx context.Context, root, zone string, ex pathExclusions) fsAudi
 			return nil
 		}
 
-		if zone == "library" && isRemovingDest {
+		if strings.HasPrefix(zone, "library") && isRemovingDest {
 			res.FilesExcluded++
 			return nil
 		}
@@ -129,7 +129,7 @@ func auditRoot(ctx context.Context, root, zone string, ex pathExclusions) fsAudi
 	return res
 }
 
-func pathHasPrefix(path string, prefixes []string) bool {
+func PathHasPrefix(path string, prefixes []string) bool {
 	for _, p := range prefixes {
 		if p == "" {
 			continue
@@ -141,7 +141,7 @@ func pathHasPrefix(path string, prefixes []string) bool {
 	return false
 }
 
-func fsResultToCheck(id, name string, r fsAuditResult) Check {
+func FSResultToCheck(id, name string, r FSAuditResult) Check {
 	if r.FilesSkipped == -1 {
 		return Check{
 			ID: id, Name: name, Status: CheckSkip,
@@ -164,15 +164,15 @@ func fsResultToCheck(id, name string, r fsAuditResult) Check {
 	}
 
 	details := map[string]any{
-		"root":            r.Root,
-		"zone":            r.Zone,
-		"files_scanned":   r.FilesScanned,
-		"files_ok":        r.FilesOK,
-		"files_excluded":  r.FilesExcluded,
-		"files_skipped":   r.FilesSkipped,
-		"issue_count":     r.IssueCount,
-		"issues_sample":   r.Issues,
-		"truncated":       r.Truncated,
+		"root":           r.Root,
+		"zone":           r.Zone,
+		"files_scanned":  r.FilesScanned,
+		"files_ok":       r.FilesOK,
+		"files_excluded": r.FilesExcluded,
+		"files_skipped":  r.FilesSkipped,
+		"issue_count":    r.IssueCount,
+		"issues_sample":  r.Issues,
+		"truncated":      r.Truncated,
 	}
 	return Check{ID: id, Name: name, Status: status, Message: msg, Details: details}
 }

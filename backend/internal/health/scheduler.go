@@ -16,8 +16,8 @@ const (
 
 // Scheduler runs background health scans and persists results.
 type Scheduler struct {
-	svc      *Service
-	repo     Repository
+	svc        *Service
+	repo       Repository
 	quickEvery time.Duration
 	fullEvery  time.Duration
 

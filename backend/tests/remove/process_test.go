@@ -56,7 +56,9 @@ func (s *stubQbitService) RemoveTorrent(_ context.Context, hash string) error {
 func (s *stubQbitService) AddTorrent(context.Context, []byte, string, string) (*qbittorrent.AddTorrentResponse, error) {
 	return nil, nil
 }
-func (s *stubQbitService) ListTorrents(context.Context) ([]qbittorrent.Torrent, error) { return nil, nil }
+func (s *stubQbitService) ListTorrents(context.Context) ([]qbittorrent.Torrent, error) {
+	return nil, nil
+}
 func (s *stubQbitService) ListTorrentsPaginated(context.Context, int, int) (*qbittorrent.PaginatedTorrentsResponse, error) {
 	return nil, nil
 }
