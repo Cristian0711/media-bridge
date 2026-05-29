@@ -44,7 +44,8 @@ func TestAuthRoutesAreRegistered(t *testing.T) {
 		registerFn:      func(_ context.Context, _ auth.RegisterRequest) (*auth.RegisterResponse, error) { return &auth.RegisterResponse{}, nil },
 		validateTokenFn: func(_ context.Context, _ string) (*auth.ValidateResponse, error) { return &auth.ValidateResponse{}, nil },
 		generateKeyFn:   func(_ context.Context, _ uint) (*auth.GenerateKeyResponse, error) { return &auth.GenerateKeyResponse{}, nil },
-		getKeyStatusFn:  func(_ context.Context, _ string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{}, nil },
+		listKeysFn:      func(_ context.Context, _ uint) (*auth.ListKeysResponse, error) { return &auth.ListKeysResponse{}, nil },
+		getKeyStatusFn:  func(_ context.Context, _ uint, _ string) (*auth.KeyStatusResponse, error) { return &auth.KeyStatusResponse{}, nil },
 	})
 	auth.RegisterPublicRoutes(group, handler)
 	auth.RegisterProtectedRoutes(group, handler)
@@ -58,6 +59,7 @@ func TestAuthRoutesAreRegistered(t *testing.T) {
 		http.MethodPost + " /api/v1/auth/login",
 		http.MethodPost + " /api/v1/auth/register",
 		http.MethodGet + " /api/v1/auth/validate",
+		http.MethodGet + " /api/v1/keys",
 		http.MethodPost + " /api/v1/keys/generate",
 		http.MethodGet + " /api/v1/keys/:value/validate",
 	} {

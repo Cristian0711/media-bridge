@@ -24,7 +24,8 @@ type Service interface {
 	Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error)
 	ValidateToken(ctx context.Context, token string) (*ValidateResponse, error)
 	GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error)
-	GetKeyStatus(ctx context.Context, value string) (*KeyStatusResponse, error)
+	ListKeys(ctx context.Context, userID uint) (*ListKeysResponse, error)
+	GetKeyStatus(ctx context.Context, userID uint, value string) (*KeyStatusResponse, error)
 }
 
 type service struct {
@@ -134,12 +135,8 @@ func (s *service) ValidateToken(ctx context.Context, token string) (*ValidateRes
 }
 
 func (s *service) GenerateKey(ctx context.Context, userID uint) (*GenerateKeyResponse, error) {
-	user, err := s.userSvc.FindByID(ctx, userID)
-	if err != nil {
+	if err := s.requireAdmin(ctx, userID); err != nil {
 		return nil, err
-	}
-	if !users.IsAdmin(user.Role) {
-		return nil, ErrForbidden
 	}
 	key, err := s.repo.CreateKey(ctx, uuid.New().String())
 	if err != nil {
@@ -148,7 +145,25 @@ func (s *service) GenerateKey(ctx context.Context, userID uint) (*GenerateKeyRes
 	return &GenerateKeyResponse{Key: key.Value}, nil
 }
 
-func (s *service) GetKeyStatus(ctx context.Context, value string) (*KeyStatusResponse, error) {
+func (s *service) ListKeys(ctx context.Context, userID uint) (*ListKeysResponse, error) {
+	if err := s.requireAdmin(ctx, userID); err != nil {
+		return nil, err
+	}
+	keys, err := s.repo.ListKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]InviteKeyResponse, 0, len(keys))
+	for _, key := range keys {
+		items = append(items, toInviteKeyResponse(key))
+	}
+	return &ListKeysResponse{Keys: items}, nil
+}
+
+func (s *service) GetKeyStatus(ctx context.Context, userID uint, value string) (*KeyStatusResponse, error) {
+	if err := s.requireAdmin(ctx, userID); err != nil {
+		return nil, err
+	}
 	key, err := s.repo.FindKey(ctx, value)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -156,5 +171,19 @@ func (s *service) GetKeyStatus(ctx context.Context, value string) (*KeyStatusRes
 		}
 		return nil, err
 	}
-	return &KeyStatusResponse{Value: key.Value, IsActive: key.IsActive}, nil
+	return &KeyStatusResponse{
+		Value:    key.Value,
+		IsActive: key.IsActive,
+		Status:   inviteKeyStatus(key.IsActive),
+	}, nil
+}
+
+func toInviteKeyResponse(key Key) InviteKeyResponse {
+	return InviteKeyResponse{
+		Value:     key.Value,
+		IsActive:  key.IsActive,
+		Status:    inviteKeyStatus(key.IsActive),
+		UsedAt:    key.UsedAt,
+		CreatedAt: key.CreatedAt,
+	}
 }

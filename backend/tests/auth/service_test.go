@@ -15,6 +15,7 @@ import (
 type authRepoStub struct {
 	createKeyFn   func(ctx context.Context, value string) (*auth.Key, error)
 	findKeyFn     func(ctx context.Context, value string) (*auth.Key, error)
+	listKeysFn    func(ctx context.Context) ([]auth.Key, error)
 	disableKeyFn  func(ctx context.Context, value string) error
 }
 
@@ -23,6 +24,12 @@ func (r *authRepoStub) CreateKey(ctx context.Context, value string) (*auth.Key, 
 }
 func (r *authRepoStub) FindKey(ctx context.Context, value string) (*auth.Key, error) {
 	return r.findKeyFn(ctx, value)
+}
+func (r *authRepoStub) ListKeys(ctx context.Context) ([]auth.Key, error) {
+	if r.listKeysFn == nil {
+		return nil, nil
+	}
+	return r.listKeysFn(ctx)
 }
 func (r *authRepoStub) DisableKey(ctx context.Context, value string) error {
 	return r.disableKeyFn(ctx, value)
@@ -264,8 +271,52 @@ func TestGenerateKeyAndGetStatus(t *testing.T) {
 	if err != nil || keyResp.Key == "" {
 		t.Fatalf("expected generated key, got resp=%+v err=%v", keyResp, err)
 	}
-	_, err = svc.GetKeyStatus(context.Background(), "missing")
+	_, err = svc.GetKeyStatus(context.Background(), 1, "missing")
 	if !errors.Is(err, auth.ErrKeyInvalid) {
 		t.Fatalf("expected ErrKeyInvalid, got %v", err)
+	}
+}
+
+func TestListKeysRequiresAdmin(t *testing.T) {
+	t.Parallel()
+	svc := auth.NewService(
+		&authRepoStub{},
+		&usersSvcStub{
+			findByIDFn: func(context.Context, uint) (*users.User, error) {
+				return &users.User{ID: 1, Role: users.RoleUser}, nil
+			},
+		},
+		auth.NewJWTManager("secret"),
+	)
+	_, err := svc.ListKeys(context.Background(), 1)
+	if !errors.Is(err, auth.ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+func TestListKeysReturnsAll(t *testing.T) {
+	t.Parallel()
+	svc := auth.NewService(
+		&authRepoStub{
+			listKeysFn: func(context.Context) ([]auth.Key, error) {
+				return []auth.Key{
+					{Value: "a", IsActive: true},
+					{Value: "b", IsActive: false},
+				}, nil
+			},
+		},
+		&usersSvcStub{
+			findByIDFn: func(context.Context, uint) (*users.User, error) {
+				return &users.User{ID: 1, Role: users.RoleAdmin}, nil
+			},
+		},
+		auth.NewJWTManager("secret"),
+	)
+	resp, err := svc.ListKeys(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("list keys: %v", err)
+	}
+	if len(resp.Keys) != 2 || resp.Keys[0].Status != "available" || resp.Keys[1].Status != "used" {
+		t.Fatalf("unexpected keys: %+v", resp.Keys)
 	}
 }

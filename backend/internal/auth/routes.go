@@ -10,6 +10,7 @@ func RegisterPublicRoutes(r *gin.RouterGroup, h *Handler) {
 
 func RegisterProtectedRoutes(r *gin.RouterGroup, h *Handler) {
 	keys := r.Group("/keys")
+	keys.GET("", h.ListKeys)
 	keys.POST("/generate", h.GenerateKey)
 	keys.GET("/:value/validate", h.GetKeyStatus)
 }

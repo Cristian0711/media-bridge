@@ -37,3 +37,17 @@ export type CurrentUser = {
 export type GenerateKeyResponse = {
   key: string;
 };
+
+export type InviteKeyStatus = 'available' | 'used';
+
+export type InviteKey = {
+  value: string;
+  is_active: boolean;
+  status: InviteKeyStatus;
+  used_at?: string;
+  created_at: string;
+};
+
+export type ListKeysResponse = {
+  keys: InviteKey[];
+};

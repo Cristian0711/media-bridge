@@ -2,6 +2,7 @@ import { callApi } from '$lib/api/client';
 import type {
   CurrentUser,
   GenerateKeyResponse,
+  ListKeysResponse,
   LoginRequest,
   LoginResponse,
   RegisterRequest,
@@ -38,4 +39,8 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
 export async function generateRegistrationKey(): Promise<GenerateKeyResponse> {
   return callApi<GenerateKeyResponse>('/keys/generate', { method: 'POST' });
+}
+
+export async function listRegistrationKeys(): Promise<ListKeysResponse> {
+  return callApi<ListKeysResponse>('/keys', { method: 'GET' });
 }

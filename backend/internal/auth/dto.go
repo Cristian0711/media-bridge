@@ -1,5 +1,7 @@
 package auth
 
+import "time"
+
 // --- login ---
 
 type LoginRequest struct {
@@ -43,4 +45,17 @@ type GenerateKeyResponse struct {
 type KeyStatusResponse struct {
 	Value    string `json:"value"`
 	IsActive bool   `json:"is_active"`
+	Status   string `json:"status"`
+}
+
+type InviteKeyResponse struct {
+	Value     string     `json:"value"`
+	IsActive  bool       `json:"is_active"`
+	Status    string     `json:"status"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type ListKeysResponse struct {
+	Keys []InviteKeyResponse `json:"keys"`
 }

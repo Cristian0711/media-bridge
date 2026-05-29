@@ -10,6 +10,7 @@ import (
 type Repository interface {
 	CreateKey(ctx context.Context, value string) (*Key, error)
 	FindKey(ctx context.Context, value string) (*Key, error)
+	ListKeys(ctx context.Context) ([]Key, error)
 	DisableKey(ctx context.Context, value string) error
 }
 
@@ -32,6 +33,14 @@ func (r *repository) FindKey(ctx context.Context, value string) (*Key, error) {
 		Where("value = ?", value).
 		First(&key).Error
 	return &key, err
+}
+
+func (r *repository) ListKeys(ctx context.Context) ([]Key, error) {
+	var keys []Key
+	err := r.db.WithContext(ctx).
+		Order("created_at DESC").
+		Find(&keys).Error
+	return keys, err
 }
 
 func (r *repository) DisableKey(ctx context.Context, value string) error {

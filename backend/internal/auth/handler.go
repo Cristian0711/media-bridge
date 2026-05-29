@@ -68,38 +68,3 @@ func (h *Handler) ValidateToken(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) GenerateKey(c *gin.Context) {
-	userID, ok := c.Get("user_id")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	id, ok := userID.(uint)
-	if !ok || id == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	resp, err := h.svc.GenerateKey(c.Request.Context(), id)
-	if err != nil {
-		if errors.Is(err, ErrForbidden) {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-		return
-	}
-	c.JSON(http.StatusCreated, resp)
-}
-
-func (h *Handler) GetKeyStatus(c *gin.Context) {
-	resp, err := h.svc.GetKeyStatus(c.Request.Context(), c.Param("value"))
-	if err != nil {
-		if errors.Is(err, ErrKeyInvalid) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-}
