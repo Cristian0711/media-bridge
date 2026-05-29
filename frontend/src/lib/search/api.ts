@@ -15,10 +15,11 @@ export type MovieExternalIds = {
   tmdb_id: number;
 };
 
-/** Shows: imdb_id + tvdb_id */
+/** Shows: imdb_id required; tvdb_id when TMDB has it */
 export type ShowExternalIds = {
   imdb_id: string;
-  tvdb_id: number;
+  tvdb_id?: number;
+  tmdb_id?: number;
 };
 
 async function fetchExternalIdsRaw(
@@ -65,8 +66,8 @@ export async function fetchMovieExternalIds(tmdbId: number): Promise<MovieExtern
 
 export async function fetchShowExternalIds(tmdbId: number): Promise<ShowExternalIds> {
   const ids = await fetchExternalIdsRaw('show', tmdbId);
-  if (!('tvdb_id' in ids) || !ids.imdb_id) {
-    throw new Error('Missing show external IDs');
+  if (!ids.imdb_id) {
+    throw new Error('Missing IMDb ID for show');
   }
   return ids as ShowExternalIds;
 }
@@ -96,7 +97,7 @@ export async function resolveItemForIndexer(
     };
   }
 
-  if (item.ids.imdb && item.ids.tvdb) {
+  if (item.ids.imdb) {
     return item;
   }
   const ids = await fetchShowExternalIds(tmdb);
@@ -105,8 +106,8 @@ export async function resolveItemForIndexer(
     ids: {
       ...item.ids,
       imdb: ids.imdb_id,
-      tvdb: ids.tvdb_id,
-      tmdb,
+      ...(ids.tvdb_id != null && ids.tvdb_id > 0 ? { tvdb: ids.tvdb_id } : {}),
+      tmdb: ids.tmdb_id ?? tmdb,
     },
   };
 }

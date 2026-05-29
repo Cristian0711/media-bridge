@@ -22,7 +22,7 @@ type SearchPage struct {
 }
 
 // ExternalIDs is resolved from TMDB when the user downloads or searches torrents.
-// Movies: imdb_id + tmdb_id. Shows: imdb_id + tvdb_id.
+// IMDb is required for indexer search; TVDB (shows) and TMDB (movies) are included when available.
 type ExternalIDs struct {
 	IMDBID string `json:"imdb_id,omitempty"`
 	TMDBID int    `json:"tmdb_id,omitempty"`
@@ -71,7 +71,7 @@ func (s *Service) Search(ctx context.Context, query string, page int) (*SearchPa
 	}, nil
 }
 
-// ResolveExternalIDs fetches IMDb (and TVDB for shows) from TMDB — only for download/indexer actions.
+// ResolveExternalIDs fetches IMDb from TMDB (TVDB for shows when available) — only for download/indexer actions.
 func (s *Service) ResolveExternalIDs(ctx context.Context, mediaType string, tmdbID int) (*ExternalIDs, error) {
 	if tmdbID <= 0 {
 		return nil, fmt.Errorf("invalid tmdb id")
@@ -94,10 +94,11 @@ func (s *Service) ResolveExternalIDs(ctx context.Context, mediaType string, tmdb
 		if imdb == "" {
 			return nil, fmt.Errorf("no imdb id for tmdb show %d", tmdbID)
 		}
-		if tvdb <= 0 {
-			return nil, fmt.Errorf("no tvdb id for tmdb show %d", tmdbID)
+		out := &ExternalIDs{IMDBID: imdb, TMDBID: tmdbID}
+		if tvdb > 0 {
+			out.TVDBID = tvdb
 		}
-		return &ExternalIDs{IMDBID: imdb, TVDBID: tvdb}, nil
+		return out, nil
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
 	}
