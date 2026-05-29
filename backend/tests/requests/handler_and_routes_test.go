@@ -21,7 +21,8 @@ type requestsSvcStub struct {
 	listFn          func(ctx context.Context, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
 	listQueueFn          func(ctx context.Context, page, pageSize int) (*requests.PaginatedQueueEntriesResponse, error)
 	listForUserFn        func(ctx context.Context, userID uint, page, pageSize int) (*requests.PaginatedRequestsResponse, error)
-	getRequestTorrentFn  func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
+	getRequestTorrentFn       func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
+	getRequestTorrentFreshFn  func(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error)
 }
 
 func (s *requestsSvcStub) RequestMovieDownload(ctx context.Context, req requests.MovieDownloadRequestBody, userID uint, username, requestID string) (*requests.RequestAck, error) {
@@ -53,6 +54,13 @@ func (s *requestsSvcStub) GetRequestTorrentInfo(ctx context.Context, requestID u
 		return s.getRequestTorrentFn(ctx, requestID)
 	}
 	return &requests.RequestTorrentInfo{}, nil
+}
+
+func (s *requestsSvcStub) GetRequestTorrentInfoFresh(ctx context.Context, requestID uint) (*requests.RequestTorrentInfo, error) {
+	if s.getRequestTorrentFreshFn != nil {
+		return s.getRequestTorrentFreshFn(ctx, requestID)
+	}
+	return s.GetRequestTorrentInfo(ctx, requestID)
 }
 
 func TestMovieDownloadHandlerStatusCodes(t *testing.T) {

@@ -20,6 +20,7 @@ type Service interface {
 	ListRequestsForUser(ctx context.Context, userID uint, page, pageSize int) (*PaginatedRequestsResponse, error)
 	ListQueueEntries(ctx context.Context, page, pageSize int) (*PaginatedQueueEntriesResponse, error)
 	GetRequestTorrentInfo(ctx context.Context, requestID uint) (*RequestTorrentInfo, error)
+	GetRequestTorrentInfoFresh(ctx context.Context, requestID uint) (*RequestTorrentInfo, error)
 }
 
 type service struct {

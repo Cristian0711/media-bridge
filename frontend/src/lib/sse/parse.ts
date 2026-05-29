@@ -2,7 +2,7 @@ import type { AppSseEnvelope, AppSseEventType } from '$lib/sse/types';
 
 export type ParsedSseMessage = {
   event: AppSseEventType | string;
-  data: AppSseEnvelope | null;
+  data: AppSseEnvelope | Record<string, unknown> | null;
 };
 
 /** Incrementally parse SSE frames from a text buffer. */

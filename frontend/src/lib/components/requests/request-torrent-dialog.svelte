@@ -8,7 +8,7 @@
     DialogTitle,
   } from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
-  import { getRequestTorrentInfo } from '$lib/requests/torrent-api';
+  import { connectRequestTorrentStream } from '$lib/requests/torrent-stream';
   import {
     formatBytes,
     formatEta,
@@ -18,28 +18,25 @@
   } from '$lib/requests/torrent-format';
   import type { RequestRow } from '$lib/types/request';
   import type { RequestTorrentInfo } from '$lib/types/torrent';
-  import { CheckCircle2, Circle, HardDrive, Link2, Loader2, RefreshCw } from 'lucide-svelte';
-  import { untrack } from 'svelte';
+  import { CheckCircle2, Circle, HardDrive, Link2, RefreshCw } from 'lucide-svelte';
 
-  const POLL_MS = 5000;
+  const STREAM_INTERVAL_SEC = 1;
 
   interface Props {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     request: RequestRow;
-    /** Fired while the initial fetch runs before the dialog is shown. */
+    /** Fired while waiting for the first SSE update before the dialog is shown. */
     onPreparingChange?: (preparing: boolean) => void;
   }
 
   let { open, onOpenChange, request, onPreparingChange }: Props = $props();
 
   let info = $state<RequestTorrentInfo | null>(null);
-  let loading = $state(false);
   let error = $state<string | null>(null);
   let lastUpdated = $state<Date | null>(null);
-  let refreshInFlight = false;
-  /** Dialog stays closed until the first fetch for this open cycle completes. */
   let dialogVisible = $state(false);
+  let streamConnected = $state(false);
 
   const displayName = $derived(info?.torrent?.name || info?.torrent_name || request.torrent_name || request.name);
   const progressPct = $derived(
@@ -55,35 +52,21 @@
     onPreparingChange?.(open && !dialogVisible);
   });
 
-  async function refresh() {
-    if (refreshInFlight) return;
-    refreshInFlight = true;
-    const showSpinner = untrack(() => info === null);
-    if (showSpinner) loading = true;
+  function applyUpdate(payload: RequestTorrentInfo) {
+    info = payload;
+    lastUpdated = new Date();
     error = null;
-    try {
-      info = await getRequestTorrentInfo(request.id);
-      lastUpdated = new Date();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load torrent info';
-    } finally {
-      refreshInFlight = false;
-      if (showSpinner) loading = false;
+    if (!dialogVisible) {
+      dialogVisible = true;
     }
-  }
-
-  function pollVisible() {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-    void refresh();
   }
 
   function resetState() {
     info = null;
     error = null;
     lastUpdated = null;
-    loading = false;
-    refreshInFlight = false;
     dialogVisible = false;
+    streamConnected = false;
   }
 
   function handleDialogOpenChange(v: boolean) {
@@ -99,33 +82,30 @@
     }
 
     const requestId = request.id;
-    let cancelled = false;
+    let gotFirstUpdate = false;
 
-    void (async () => {
-      await refresh();
-      if (!cancelled && open && request.id === requestId) {
-        dialogVisible = true;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  });
-
-  $effect(() => {
-    if (!dialogVisible) return;
-
-    const requestId = request.id;
-    const intervalId = setInterval(pollVisible, POLL_MS);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') pollVisible();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
+    const stream = connectRequestTorrentStream(requestId, {
+      onUpdate: (payload) => {
+        if (!open || request.id !== requestId) return;
+        gotFirstUpdate = true;
+        applyUpdate(payload);
+      },
+      onError: (message) => {
+        if (!open || request.id !== requestId) return;
+        if (!gotFirstUpdate) {
+          error = message;
+          dialogVisible = true;
+        } else {
+          error = message;
+        }
+      },
+      onConnected: () => {
+        streamConnected = true;
+      },
+    });
 
     return () => {
-      clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', onVisibility);
+      stream.close();
     };
   });
 </script>
@@ -289,14 +269,13 @@
       <span class="mr-auto self-center text-[11px] text-white/50">
         {#if lastUpdated}
           Updated {lastUpdated.toLocaleTimeString()}
+          {#if streamConnected}
+            · live every {STREAM_INTERVAL_SEC}s
+          {/if}
         {:else}
-          Auto-refreshes every {POLL_MS / 1000}s
+          Connecting…
         {/if}
       </span>
-      <Button variant="outline" size="sm" onclick={() => void refresh()} disabled={loading}>
-        <RefreshCw class="mr-1 h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" />
-        Refresh
-      </Button>
       <Button variant="outline" size="sm" onclick={() => onOpenChange(false)}>Close</Button>
     </DialogFooter>
   </DialogContent>
