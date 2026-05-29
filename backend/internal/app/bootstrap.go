@@ -38,6 +38,9 @@ func Bootstrap() (*Server, error) {
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := users.SeedRuntime(db); err != nil {
+		return nil, fmt.Errorf("seed roles: %w", err)
+	}
 
 	userRepo := users.NewRepository(db)
 	authRepo := auth.NewRepository(db)
@@ -162,6 +165,7 @@ func migrate(db *gorm.DB) error {
 	}
 
 	if err := db.AutoMigrate(
+		&users.RoleRecord{},
 		&users.User{},
 		&auth.Key{},
 		&requests.Request{},
