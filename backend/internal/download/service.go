@@ -121,5 +121,8 @@ func detectIndexerFromURL(url string) string {
 	if strings.Contains(lower, "filelist.io") {
 		return "filelist"
 	}
+	if strings.Contains(lower, "blutopia.cc") {
+		return "blutopia"
+	}
 	return "filelist"
 }

@@ -44,6 +44,7 @@ type QBittorrentConfig struct {
 type IndexerConfig struct {
 	FileList     FileListConfig
 	TorrentLeech TorrentLeechConfig
+	Blutopia     BlutopiaConfig
 }
 
 type FileListConfig struct {
@@ -62,6 +63,12 @@ type TorrentLeechConfig struct {
 	TLPASS      string
 	LastBrowse1 string
 	LastBrowse2 string
+}
+
+type BlutopiaConfig struct {
+	Enabled bool
+	BaseURL string
+	APIKey  string
 }
 
 func Load() (*AppConfig, error) {
@@ -98,6 +105,11 @@ func Load() (*AppConfig, error) {
 				TLPASS:      get("TORRENTLEECH_TLPASS", ""),
 				LastBrowse1: get("TORRENTLEECH_LASTBROWSE1", ""),
 				LastBrowse2: get("TORRENTLEECH_LASTBROWSE2", ""),
+			},
+			Blutopia: BlutopiaConfig{
+				Enabled: getBool("BLUTOPIA_ENABLED", true),
+				BaseURL: get("BLUTOPIA_BASE_URL", "https://blutopia.cc"),
+				APIKey:  get("BLUTOPIA_API_KEY", ""),
 			},
 		},
 		TMDB: TMDBConfig{

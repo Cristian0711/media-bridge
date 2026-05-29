@@ -3,6 +3,7 @@ package setup
 import (
 	"github.com/Cristian0711/media-bridge/backend/internal/config"
 	"github.com/Cristian0711/media-bridge/backend/internal/indexer"
+	"github.com/Cristian0711/media-bridge/backend/internal/indexer/blutopia"
 	"github.com/Cristian0711/media-bridge/backend/internal/indexer/filelist"
 	"github.com/Cristian0711/media-bridge/backend/internal/indexer/torrentleech"
 )
@@ -25,6 +26,11 @@ func NewService(cfg config.IndexerConfig) *indexer.Service {
 		LastBrowse1: cfg.TorrentLeech.LastBrowse1,
 		LastBrowse2: cfg.TorrentLeech.LastBrowse2,
 	}, cfg.TorrentLeech.Enabled))
+
+	svc.RegisterIndexer(blutopia.NewProvider(blutopia.Config{
+		BaseURL: cfg.Blutopia.BaseURL,
+		APIKey:  cfg.Blutopia.APIKey,
+	}, cfg.Blutopia.Enabled))
 
 	return svc
 }
