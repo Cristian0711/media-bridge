@@ -81,6 +81,10 @@ type Repository interface {
 
 	// PurgeTerminalOlderThan deletes terminal request rows older than retention (R9).
 	PurgeTerminalOlderThan(ctx context.Context, retention time.Duration) (int64, error)
+
+	// SetTorrentInfoInvalidator wires cache eviction for the torrent details modal:
+	// the repository evicts on every status mutation it publishes.
+	SetTorrentInfoInvalidator(inv TorrentInfoInvalidator)
 }
 
 type repository struct {
@@ -98,7 +102,6 @@ func NewRepository(db *gorm.DB, publisher sse.Publisher) Repository {
 	return &repository{db: db, publisher: publisher}
 }
 
-// SetTorrentInfoInvalidator wires cache eviction for the torrent details modal (6.1).
 func (r *repository) SetTorrentInfoInvalidator(inv TorrentInfoInvalidator) {
 	r.torrentInfoInvalidator = inv
 }
@@ -126,31 +129,31 @@ func (r *repository) UpdateStatus(ctx context.Context, requestID uint, status st
 }
 
 func (r *repository) MarkDownloadingIfQueued(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"queued"}, "downloading")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusQueued}, StatusDownloading)
 }
 
 func (r *repository) MarkDownloadedIfDownloading(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"downloading"}, "downloaded")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusDownloading}, StatusDownloaded)
 }
 
 func (r *repository) MarkFailedIfInFlight(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, activeDownloadStatuses, "failed")
+	return r.updateStatusWhen(ctx, requestID, activeDownloadStatuses, StatusFailed)
 }
 
 func (r *repository) MarkRemovedIfRemoving(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"removing"}, "removed")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusRemoving}, StatusRemoved)
 }
 
 func (r *repository) MarkFailedIfRemoving(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"removing"}, "failed")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusRemoving}, StatusFailed)
 }
 
 func (r *repository) MarkQueuedIfPending(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"pending"}, "queued")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusPending}, StatusQueued)
 }
 
 func (r *repository) MarkRemovingIfPending(ctx context.Context, requestID uint) (bool, error) {
-	return r.updateStatusWhen(ctx, requestID, []string{"pending"}, "removing")
+	return r.updateStatusWhen(ctx, requestID, []string{StatusPending}, StatusRemoving)
 }
 
 func (r *repository) updateStatusWhen(ctx context.Context, requestID uint, from []string, to string) (bool, error) {
@@ -185,7 +188,7 @@ func (r *repository) CancelDownloadsByMediaID(ctx context.Context, mediaID uint)
 	if err := r.db.WithContext(ctx).
 		Model(&Request{}).
 		Where("media_id = ?", mediaID).
-		Where("type IN ?", []string{"movie_download", "show_download"}).
+		Where("type IN ?", downloadTypes).
 		Where("status IN ?", cancellableDownloadStatusesForRemove).
 		Pluck("id", &ids).Error; err != nil {
 		return 0, err
@@ -197,7 +200,7 @@ func (r *repository) CancelDownloadsByMediaID(ctx context.Context, mediaID uint)
 	res := r.db.WithContext(ctx).
 		Model(&Request{}).
 		Where("id IN ?", ids).
-		Update("status", "cancelled")
+		Update("status", StatusCancelled)
 	if res.Error != nil {
 		return res.RowsAffected, res.Error
 	}
@@ -261,48 +264,26 @@ func (r *repository) FindByID(ctx context.Context, id uint) (*Request, error) {
 	return &row, nil
 }
 
-// activeDownloadStatuses lists the request states that count as "this download
-// is already in motion" — i.e. either waiting in the requests queue or being
-// processed by the download/hardlink queue. 'downloaded' is intentionally
-// excluded; once a download is finalized, FindMovieIDsByExternalIDAndQuality
-// catches the duplicate via the media row.
-var activeDownloadStatuses = []string{"pending", "queued", "downloading"}
-
-// cancellableDownloadStatusesForRemove includes downloaded so remove can clean up
-// requests finalized just before cancel runs (R5).
-var cancellableDownloadStatusesForRemove = []string{"pending", "queued", "downloading", "downloaded"}
-
-var terminalRequestStatuses = []string{"downloaded", "removed", "failed", "cancelled"}
-
-// activeRemoveStatuses lists the request states that count as "a remove is
-// already in motion" for this media_id. Once a remove is fully done the media
-// row is gone so a fresh remove POST simply 404s upstream.
-var activeRemoveStatuses = []string{"pending", "removing"}
-
-func (r *repository) CreateMovieDownloadIfAbsent(
+// createIfAbsent runs the dedup-then-create-then-enqueue transaction shared by
+// all request entry points. findExisting builds the query that decides whether
+// an equivalent in-flight request already exists; when it matches, no row is
+// created and the existing row is returned with created=false. When enqueue is
+// non-nil it runs inside the same transaction so the request row and its queue
+// job commit atomically (R1, R2).
+func (r *repository) createIfAbsent(
 	ctx context.Context,
 	req *Request,
-	imdbID, tmdbID, quality string,
+	findExisting func(tx *gorm.DB) *gorm.DB,
 	enqueue func(tx *gorm.DB, entry *Request) error,
 ) (*Request, bool, error) {
-	if imdbID == "" && tmdbID == "" {
-		return nil, false, fmt.Errorf("movie download requires imdb_id or tmdb_id")
-	}
 	var existing Request
 	created := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		q := tx.Model(&Request{}).
-			Where("type = ?", "movie_download").
-			Where("status IN ?", activeDownloadStatuses).
-			Where("quality = ?", quality)
-		if imdbID != "" {
-			q = q.Where("imdb_id = ?", imdbID)
-		} else {
-			q = q.Where("tmdb_id = ?", tmdbID)
-		}
-		if err := q.Order("created_at DESC").First(&existing).Error; err == nil {
+		err := findExisting(tx).Order("created_at DESC").First(&existing).Error
+		if err == nil {
 			return nil
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		if err := tx.Create(req).Error; err != nil {
@@ -324,6 +305,27 @@ func (r *repository) CreateMovieDownloadIfAbsent(
 		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
 	}
 	return req, created, nil
+}
+
+func (r *repository) CreateMovieDownloadIfAbsent(
+	ctx context.Context,
+	req *Request,
+	imdbID, tmdbID, quality string,
+	enqueue func(tx *gorm.DB, entry *Request) error,
+) (*Request, bool, error) {
+	if imdbID == "" && tmdbID == "" {
+		return nil, false, fmt.Errorf("movie download requires imdb_id or tmdb_id")
+	}
+	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
+		q := tx.Model(&Request{}).
+			Where("type = ?", TypeMovieDownload).
+			Where("status IN ?", activeDownloadStatuses).
+			Where("quality = ?", quality)
+		if imdbID != "" {
+			return q.Where("imdb_id = ?", imdbID)
+		}
+		return q.Where("tmdb_id = ?", tmdbID)
+	}, enqueue)
 }
 
 func (r *repository) CreateShowDownloadIfAbsent(
@@ -336,44 +338,18 @@ func (r *repository) CreateShowDownloadIfAbsent(
 	if imdbID == "" && tvdbID == "" {
 		return nil, false, fmt.Errorf("show download requires imdb_id or tvdb_id")
 	}
-	var existing Request
-	created := false
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
 		q := tx.Model(&Request{}).
-			Where("type = ?", "show_download").
+			Where("type = ?", TypeShowDownload).
 			Where("status IN ?", activeDownloadStatuses).
 			Where("quality = ?", quality).
 			Where("season = ?", season).
 			Where("episode = ?", episode)
 		if imdbID != "" {
-			q = q.Where("imdb_id = ?", imdbID)
-		} else {
-			q = q.Where("tvdb_id = ?", tvdbID)
+			return q.Where("imdb_id = ?", imdbID)
 		}
-		if err := q.Order("created_at DESC").First(&existing).Error; err == nil {
-			return nil
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Create(req).Error; err != nil {
-			return err
-		}
-		created = true
-		if enqueue != nil {
-			return enqueue(tx, req)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	if existing.ID != 0 {
-		return &existing, false, nil
-	}
-	if row, err := r.FindByID(ctx, req.ID); err == nil {
-		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
-	}
-	return req, created, nil
+		return q.Where("tvdb_id = ?", tvdbID)
+	}, enqueue)
 }
 
 func (r *repository) CreateRemoveIfAbsent(
@@ -386,38 +362,12 @@ func (r *repository) CreateRemoveIfAbsent(
 	if mediaID == 0 {
 		return nil, false, fmt.Errorf("remove requires media_id")
 	}
-	var existing Request
-	created := false
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&Request{}).
+	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&Request{}).
 			Where("media_id = ?", mediaID).
 			Where("type = ?", requestType).
-			Where("status IN ?", activeRemoveStatuses).
-			Order("created_at DESC").
-			First(&existing).Error; err == nil {
-			return nil
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if err := tx.Create(req).Error; err != nil {
-			return err
-		}
-		created = true
-		if enqueue != nil {
-			return enqueue(tx, req)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	if existing.ID != 0 {
-		return &existing, false, nil
-	}
-	if row, err := r.FindByID(ctx, req.ID); err == nil {
-		r.publisher.PublishRequestCreated(ctx, ToSSEPayload(row))
-	}
-	return req, created, nil
+			Where("status IN ?", activeRemoveStatuses)
+	}, enqueue)
 }
 
 func (r *repository) FindActiveMovieDownload(ctx context.Context, imdbID, tmdbID, quality string) (*Request, error) {
@@ -426,7 +376,7 @@ func (r *repository) FindActiveMovieDownload(ctx context.Context, imdbID, tmdbID
 	}
 	q := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("type = ?", "movie_download").
+		Where("type = ?", TypeMovieDownload).
 		Where("status IN ?", activeDownloadStatuses).
 		Where("quality = ?", quality)
 	if imdbID != "" {
@@ -451,7 +401,7 @@ func (r *repository) FindActiveShowDownload(ctx context.Context, imdbID, tvdbID,
 	}
 	q := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("type = ?", "show_download").
+		Where("type = ?", TypeShowDownload).
 		Where("status IN ?", activeDownloadStatuses).
 		Where("quality = ?", quality).
 		Where("season = ?", season).
@@ -476,8 +426,8 @@ func (r *repository) ListDownloading(ctx context.Context) ([]Request, error) {
 	var rows []Request
 	err := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("type IN ?", []string{"movie_download", "show_download"}).
-		Where("status = ?", "downloading").
+		Where("type IN ?", downloadTypes).
+		Where("status = ?", StatusDownloading).
 		Where("media_id > 0").
 		Order("created_at ASC").
 		Find(&rows).Error
@@ -513,7 +463,7 @@ func (r *repository) ListOrphanedPending(ctx context.Context, minAge time.Durati
 	var rows []Request
 	err := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("status = ?", "pending").
+		Where("status = ?", StatusPending).
 		Where("created_at < ?", cutoff).
 		Order("created_at ASC").
 		Find(&rows).Error
@@ -532,8 +482,8 @@ func (r *repository) ListStuckQueued(
 	var rows []Request
 	if err := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("type IN ?", []string{"movie_download", "show_download"}).
-		Where("status = ?", "queued").
+		Where("type IN ?", downloadTypes).
+		Where("status = ?", StatusQueued).
 		Where("updated_at < ?", cutoff).
 		Order("updated_at ASC").
 		Find(&rows).Error; err != nil {
@@ -551,8 +501,8 @@ func (r *repository) ListStuckRemoving(
 	var rows []Request
 	if err := r.db.WithContext(ctx).
 		Model(&Request{}).
-		Where("type IN ?", []string{"movie_remove", "show_remove"}).
-		Where("status = ?", "removing").
+		Where("type IN ?", removeTypes).
+		Where("status = ?", StatusRemoving).
 		Where("updated_at < ?", cutoff).
 		Order("updated_at ASC").
 		Find(&rows).Error; err != nil {

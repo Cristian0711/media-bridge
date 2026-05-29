@@ -44,7 +44,7 @@ func writeTorrentStreamEvent(w io.Writer, msg torrentStreamMessage) error {
 func (h *Handler) StreamRequestTorrent(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid request id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request id"})
 		return
 	}
 	requestID := uint(id)
@@ -56,7 +56,7 @@ func (h *Handler) StreamRequestTorrent(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(500, gin.H{"error": "streaming not supported"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
 		return
 	}
 
@@ -73,35 +73,12 @@ func (h *Handler) StreamRequestTorrent(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	push := func() bool {
-		info, err := h.svc.GetRequestTorrentInfoFresh(ctx, requestID)
-		if err != nil {
-			msg := torrentStreamMessage{Type: TorrentStreamError, RequestID: requestID}
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				msg.Error = "request not found"
-				_ = writeTorrentStreamEvent(c.Writer, msg)
-				flusher.Flush()
-				return false
-			}
-			msg.Error = "failed to load torrent info"
-			_ = writeTorrentStreamEvent(c.Writer, msg)
-			flusher.Flush()
-			return true
-		}
-		if err := writeTorrentStreamEvent(c.Writer, torrentStreamMessage{
-			Type:      TorrentStreamUpdate,
-			RequestID: requestID,
-			Payload:   info,
-		}); err != nil {
-			return false
-		}
-		flusher.Flush()
-		return true
+		return h.pushTorrentUpdate(ctx, c.Writer, flusher, requestID)
 	}
 
 	if !push() {
 		return
 	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -114,16 +91,31 @@ func (h *Handler) StreamRequestTorrent(c *gin.Context) {
 	}
 }
 
-// GetRequestTorrentInfoFresh loads live qBittorrent/hardlink state without the HTTP cache.
-func (s *service) GetRequestTorrentInfoFresh(ctx context.Context, requestID uint) (*RequestTorrentInfo, error) {
-	req, err := s.repo.FindByID(ctx, requestID)
+// pushTorrentUpdate writes one torrent frame and reports whether the stream
+// should continue. A missing request terminates the stream; transient errors
+// emit an error frame but keep polling.
+func (h *Handler) pushTorrentUpdate(ctx context.Context, w io.Writer, flusher http.Flusher, requestID uint) bool {
+	info, err := h.svc.GetRequestTorrentInfoFresh(ctx, requestID)
 	if err != nil {
-		return nil, err
+		msg := torrentStreamMessage{Type: TorrentStreamError, RequestID: requestID}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			msg.Error = "request not found"
+			_ = writeTorrentStreamEvent(w, msg)
+			flusher.Flush()
+			return false
+		}
+		msg.Error = "failed to load torrent info"
+		_ = writeTorrentStreamEvent(w, msg)
+		flusher.Flush()
+		return true
 	}
-	info, err := s.torrentInfo.build(ctx, req)
-	if err != nil {
-		return nil, err
+	if err := writeTorrentStreamEvent(w, torrentStreamMessage{
+		Type:      TorrentStreamUpdate,
+		RequestID: requestID,
+		Payload:   info,
+	}); err != nil {
+		return false
 	}
-	s.torrentInfo.cache.set(requestID, info)
-	return info, nil
+	flusher.Flush()
+	return true
 }

@@ -98,7 +98,7 @@ func (p *QueueProcessor) processRequest(
 	job *processingqueue.Job[QueuePayload],
 	req *Request,
 ) error {
-	if req.Status != "pending" {
+	if req.Status != StatusPending {
 		log.Debug("request already forwarded; skipping child enqueue",
 			zap.Uint("request_entry_id", req.ID),
 			zap.String("status", req.Status),
@@ -108,12 +108,12 @@ func (p *QueueProcessor) processRequest(
 
 	var targetQueue string
 	switch req.Type {
-	case "movie_download", "show_download":
+	case TypeMovieDownload, TypeShowDownload:
 		targetQueue = "download_processing_queue"
 		if err := p.forwardDownload(ctx, log, req); err != nil {
 			return err
 		}
-	case "movie_remove", "show_remove":
+	case TypeMovieRemove, TypeShowRemove:
 		targetQueue = "remove_processing_queue"
 		if err := p.forwardRemove(ctx, log, req); err != nil {
 			return err
@@ -145,30 +145,20 @@ func (p *QueueProcessor) forwardDownload(ctx context.Context, log *zap.Logger, r
 	if err != nil {
 		return err
 	}
-	if !hasJob {
-		if err := p.downloadQueue.Enqueue(ctx, download.QueuePayload{
-			RequestEntryID: req.ID,
-			RequestID:      req.RequestID,
-			UserID:         req.UserID,
-			Username:       req.Username,
-		}); err != nil {
-			return err
-		}
-	} else {
+	if hasJob {
 		log.Info("download job already exists for request; skipping enqueue",
 			zap.Uint("request_entry_id", req.ID),
 		)
-	}
-	updated, err := p.repo.MarkQueuedIfPending(ctx, req.ID)
-	if err != nil {
+	} else if err := p.downloadQueue.Enqueue(ctx, download.QueuePayload{
+		RequestEntryID: req.ID,
+		RequestID:      req.RequestID,
+		UserID:         req.UserID,
+		Username:       req.Username,
+	}); err != nil {
 		return err
 	}
-	if !updated {
-		log.Debug("skip status update: request no longer pending",
-			zap.Uint("request_entry_id", req.ID),
-		)
-	}
-	return nil
+
+	return p.markForwarded(ctx, log, req, p.repo.MarkQueuedIfPending)
 }
 
 func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req *Request) error {
@@ -176,22 +166,32 @@ func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req
 	if err != nil {
 		return err
 	}
-	if !hasJob {
-		if err := p.removeQueue.Enqueue(ctx, remove.QueuePayload{
-			RequestEntryID: req.ID,
-			RequestID:      req.RequestID,
-			MediaID:        req.MediaID,
-			UserID:         req.UserID,
-			Username:       req.Username,
-		}); err != nil {
-			return err
-		}
-	} else {
+	if hasJob {
 		log.Info("remove job already exists for request; skipping enqueue",
 			zap.Uint("request_entry_id", req.ID),
 		)
+	} else if err := p.removeQueue.Enqueue(ctx, remove.QueuePayload{
+		RequestEntryID: req.ID,
+		RequestID:      req.RequestID,
+		MediaID:        req.MediaID,
+		UserID:         req.UserID,
+		Username:       req.Username,
+	}); err != nil {
+		return err
 	}
-	updated, err := p.repo.MarkRemovingIfPending(ctx, req.ID)
+
+	return p.markForwarded(ctx, log, req, p.repo.MarkRemovingIfPending)
+}
+
+// markForwarded applies the guarded pending → queued/removing transition (R7),
+// tolerating the case where the request already advanced past pending.
+func (p *QueueProcessor) markForwarded(
+	ctx context.Context,
+	log *zap.Logger,
+	req *Request,
+	mark func(ctx context.Context, requestID uint) (bool, error),
+) error {
+	updated, err := mark(ctx, req.ID)
 	if err != nil {
 		return err
 	}

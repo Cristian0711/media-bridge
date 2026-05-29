@@ -11,18 +11,18 @@ import (
 )
 
 const (
-	reconcilerInterval   = 2 * time.Minute
-	reconcilerMinAge     = 30 * time.Second
-	requestRetention     = 90 * 24 * time.Hour
-	queueRetention       = 30 * 24 * time.Hour
+	reconcilerInterval = 2 * time.Minute
+	reconcilerMinAge   = 30 * time.Second
+	requestRetention   = 90 * 24 * time.Hour
+	queueRetention     = 30 * 24 * time.Hour
 )
 
 // Reconciler re-enqueues orphaned request rows and purges old terminal history (R2, R9).
 type Reconciler struct {
-	repo            Repository
-	requestsQueue   *QueueProcessor
-	downloadForward DownloadForwarder
-	removeForward   RemoveForwarder
+	repo             Repository
+	requestsQueue    *QueueProcessor
+	downloadForward  DownloadForwarder
+	removeForward    RemoveForwarder
 	requestRetention time.Duration
 	queueRetention   time.Duration
 }
