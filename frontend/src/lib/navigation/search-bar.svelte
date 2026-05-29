@@ -25,6 +25,21 @@
       submit();
     }
   }
+
+  let inputEl = $state<HTMLInputElement | undefined>();
+
+  function onFocus() {
+    setSearchInputFocused(true);
+    // iOS: keyboard + tab-bar hide animate async; nudge input into view after layout settles.
+    requestAnimationFrame(() => {
+      inputEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      requestAnimationFrame(() => {
+        inputEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    });
+    setTimeout(() => inputEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' }), 120);
+    setTimeout(() => inputEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' }), 300);
+  }
 </script>
 
 <label
@@ -36,6 +51,7 @@
 >
   <Search class="size-5 shrink-0 text-white/55" strokeWidth={1.75} />
   <input
+    bind:this={inputEl}
     type="search"
     name="query"
     placeholder="Search movies, shows…"
@@ -43,7 +59,7 @@
     enterkeyhint="search"
     bind:value={query}
     class="min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
-    onfocus={() => setSearchInputFocused(true)}
+    onfocus={onFocus}
     onblur={() => setSearchInputFocused(false)}
     onkeydown={onKeydown}
   />

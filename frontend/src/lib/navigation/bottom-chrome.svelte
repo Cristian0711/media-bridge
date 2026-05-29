@@ -13,7 +13,7 @@
 </script>
 
 <nav
-  use:pinLayoutBottom
+  use:pinLayoutBottom={onSearch && $searchInputFocused}
   class="bottom-chrome z-50 flex w-full flex-col items-center gap-3 px-4"
   aria-label="Main navigation"
 >
