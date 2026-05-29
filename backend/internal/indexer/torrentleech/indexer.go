@@ -49,6 +49,10 @@ func (p *Provider) DownloadTorrent(ctx context.Context, downloadURL string) (str
 func (p *Provider) toIndexerItems(items []Item) []idx.IndexerItem {
 	result := make([]idx.IndexerItem, 0, len(items))
 	for _, item := range items {
+		// Only surface freeleech (0% download) torrents from TorrentLeech.
+		if item.DownloadMultiplier != 0 {
+			continue
+		}
 		result = append(result, idx.IndexerItem{
 			ID:           item.Fid,
 			Name:         strings.TrimSuffix(item.Filename, ".torrent"),

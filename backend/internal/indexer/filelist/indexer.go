@@ -44,6 +44,9 @@ func (p *Provider) SearchMovies(ctx context.Context, req idx.SearchRequest) ([]i
 	}
 	items := make([]idx.IndexerItem, 0, len(movies))
 	for _, m := range movies {
+		if m.Freeleech == 1 {
+			continue
+		}
 		items = append(items, idx.IndexerItem{
 			ID:           fmt.Sprintf("%d", m.ID),
 			Name:         m.Name,
@@ -85,6 +88,9 @@ func (p *Provider) SearchShows(ctx context.Context, req idx.SearchRequest) ([]id
 	}
 	items := make([]idx.IndexerItem, 0, len(shows))
 	for _, s := range shows {
+		if s.Freeleech == 1 {
+			continue
+		}
 		items = append(items, idx.IndexerItem{
 			ID:           fmt.Sprintf("%d", s.ID),
 			Name:         s.Name,
