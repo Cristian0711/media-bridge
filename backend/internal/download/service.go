@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cristian0711/media-bridge/backend/internal/indexer/prowlarr"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 )
 
@@ -112,6 +113,9 @@ func (s *service) Add(ctx context.Context, request RequestDetails) (*AddResult, 
 }
 
 func detectIndexerFromURL(url string) string {
+	if prowlarr.IsProwlarrDownloadURL(url) {
+		return "prowlarr"
+	}
 	lower := strings.ToLower(url)
 	if strings.Contains(lower, "torrentleech.org") {
 		return "torrentleech"
@@ -122,5 +126,5 @@ func detectIndexerFromURL(url string) string {
 	if strings.Contains(lower, "blutopia.cc") {
 		return "blutopia"
 	}
-	return "filelist"
+	return "prowlarr"
 }

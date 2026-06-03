@@ -12,8 +12,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// CatalogLister optionally lists indexers configured in Prowlarr (child indexers).
+type CatalogLister interface {
+	ListCatalog(ctx context.Context) ([]CatalogEntry, error)
+}
+
+// CatalogEntry describes one indexer visible through Prowlarr.
+type CatalogEntry struct {
+	ID      string
+	Name    string
+	Enabled bool
+}
+
 type Service struct {
 	indexers map[string]Provider
+	catalog  CatalogLister
 	mu       sync.RWMutex
 	log      *zap.Logger
 }
@@ -47,6 +60,13 @@ func (s *Service) RegisterIndexer(idx Provider) {
 	s.indexers[idx.GetID()] = idx
 }
 
+// SetCatalog configures an optional catalog source (e.g. Prowlarr child indexers).
+func (s *Service) SetCatalog(cat CatalogLister) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.catalog = cat
+}
+
 func (s *Service) ListIndexers() []Provider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -55,6 +75,35 @@ func (s *Service) ListIndexers() []Provider {
 		list = append(list, idx)
 	}
 	return list
+}
+
+// ListIndexerCatalog returns Prowlarr child indexers when configured, otherwise
+// the registered provider list.
+func (s *Service) ListIndexerCatalog(ctx context.Context) []CatalogEntry {
+	s.mu.RLock()
+	cat := s.catalog
+	indexers := s.indexers
+	s.mu.RUnlock()
+
+	if cat != nil {
+		entries, err := cat.ListCatalog(ctx)
+		if err == nil && len(entries) > 0 {
+			return entries
+		}
+		if err != nil {
+			s.log.Warn("indexer catalog list failed", zap.Error(err))
+		}
+	}
+
+	out := make([]CatalogEntry, 0, len(indexers))
+	for _, p := range indexers {
+		out = append(out, CatalogEntry{
+			ID:      p.GetID(),
+			Name:    p.GetName(),
+			Enabled: p.IsEnabled(),
+		})
+	}
+	return out
 }
 
 func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSearchResponse, error) {

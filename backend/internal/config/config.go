@@ -43,32 +43,12 @@ type QBittorrentConfig struct {
 }
 
 type IndexerConfig struct {
-	FileList     FileListConfig
-	TorrentLeech TorrentLeechConfig
-	Blutopia     BlutopiaConfig
+	Prowlarr ProwlarrConfig
 }
 
-type FileListConfig struct {
-	Enabled  bool
-	Username string
-	PassKey  string
-	UUID     string
-	PassID   string
-	SessID   string
-}
-
-type TorrentLeechConfig struct {
-	Enabled     bool
-	PHPSESSID   string
-	TLUID       string
-	TLPASS      string
-	LastBrowse1 string
-	LastBrowse2 string
-}
-
-type BlutopiaConfig struct {
+type ProwlarrConfig struct {
 	Enabled bool
-	BaseURL string
+	URL     string
 	APIKey  string
 }
 
@@ -92,26 +72,10 @@ func Load() (*AppConfig, error) {
 			Password: get("QBITTORRENT_PASSWORD", "changeme"),
 		},
 		Indexer: IndexerConfig{
-			FileList: FileListConfig{
-				Enabled:  getBool("FILELIST_ENABLED", true),
-				Username: get("FILELIST_USERNAME", ""),
-				PassKey:  get("FILELIST_PASS_KEY", ""),
-				UUID:     get("FILELIST_UUID", ""),
-				PassID:   get("FILELIST_PASS_ID", ""),
-				SessID:   get("FILELIST_SESS_ID", ""),
-			},
-			TorrentLeech: TorrentLeechConfig{
-				Enabled:     getBool("TORRENTLEECH_ENABLED", true),
-				PHPSESSID:   get("TORRENTLEECH_PHPSESSID", ""),
-				TLUID:       get("TORRENTLEECH_TLUID", ""),
-				TLPASS:      get("TORRENTLEECH_TLPASS", ""),
-				LastBrowse1: get("TORRENTLEECH_LASTBROWSE1", ""),
-				LastBrowse2: get("TORRENTLEECH_LASTBROWSE2", ""),
-			},
-			Blutopia: BlutopiaConfig{
-				Enabled: getBool("BLUTOPIA_ENABLED", true),
-				BaseURL: get("BLUTOPIA_BASE_URL", "https://blutopia.cc"),
-				APIKey:  get("BLUTOPIA_API_KEY", ""),
+			Prowlarr: ProwlarrConfig{
+				Enabled: getBool("PROWLARR_ENABLED", true),
+				URL:     get("PROWLARR_URL", "http://127.0.0.1:9696"),
+				APIKey:  get("PROWLARR_API_KEY", ""),
 			},
 		},
 		TMDB: TMDBConfig{

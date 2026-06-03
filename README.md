@@ -45,7 +45,7 @@ panic recovery. Real-time updates are pushed to the UI over Server-Sent Events.
 | Reverse proxy | OpenResty (nginx + Lua), serves the static frontend |
 | Torrent client | qBittorrent (managed via its Web API) |
 | Metadata | TMDB, Trakt |
-| Indexers | FileList, TorrentLeech, Blutopia |
+| Indexers | [Prowlarr](https://prowlarr.com/) (FileList, TorrentLeech, Blutopia, etc.) |
 | Edge | Cloudflare Tunnel (`cloudflared`) |
 
 ## Quick start
@@ -83,7 +83,7 @@ All configuration is via environment variables (see `.env.example`):
 | `PORT` | API port (default `8080`) |
 | `TMDB_URL` / `TMDB_API_KEY` | TMDB metadata |
 | `TRAKT_URL` / `TRAKT_API_KEY` | Trakt metadata |
-| `FILELIST_*`, `TORRENTLEECH_*` | Indexer credentials |
+| `PROWLARR_URL` / `PROWLARR_API_KEY` | Prowlarr API (all indexers) |
 | `TUNNEL_TOKEN` | Cloudflare Tunnel token |
 
 > `.env` holds real secrets and is git-ignored. Never commit it.

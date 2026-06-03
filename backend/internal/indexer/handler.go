@@ -20,10 +20,10 @@ func (h *Handler) ListIndexers(c *gin.Context) {
 		Name    string `json:"name"`
 		Enabled bool   `json:"enabled"`
 	}
-	indexers := h.svc.ListIndexers()
-	out := make([]indexerInfo, 0, len(indexers))
-	for _, idx := range indexers {
-		out = append(out, indexerInfo{ID: idx.GetID(), Name: idx.GetName(), Enabled: idx.IsEnabled()})
+	catalog := h.svc.ListIndexerCatalog(c.Request.Context())
+	out := make([]indexerInfo, 0, len(catalog))
+	for _, idx := range catalog {
+		out = append(out, indexerInfo{ID: idx.ID, Name: idx.Name, Enabled: idx.Enabled})
 	}
 	c.JSON(http.StatusOK, gin.H{"indexers": out})
 }
