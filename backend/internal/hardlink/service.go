@@ -125,6 +125,9 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 		return fmt.Errorf("get torrent files: %w", err)
 	}
 	if len(files) == 0 {
+		if err := s.errIfTorrentStillDownloading(ctx, torrentHash, "torrent files not ready yet"); err != nil {
+			return err
+		}
 		return fmt.Errorf("no files reported by qbittorrent for hash %s yet", torrentHash)
 	}
 
@@ -205,6 +208,10 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 			zap.Int("remaining", remaining),
 			zap.Int("total", total),
 		)
+		if err := s.errIfTorrentStillDownloading(ctx, torrentHash,
+			fmt.Sprintf("hardlinking in progress: %d remaining from %d", remaining, total)); err != nil {
+			return err
+		}
 		return fmt.Errorf("hardlinking in progress: %d remaining from %d", remaining, total)
 	}
 
@@ -215,6 +222,19 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 		log.Warn("persist library path failed", zap.Error(err))
 	}
 	return nil
+}
+
+// errIfTorrentStillDownloading returns ErrDeferRetry when qBittorrent reports the
+// torrent is not finished yet, so the queue can requeue without burning attempts.
+func (s *service) errIfTorrentStillDownloading(ctx context.Context, torrentHash, msg string) error {
+	t, err := s.qbitService.GetTorrent(ctx, torrentHash)
+	if err != nil {
+		return nil
+	}
+	if qbittorrent.TorrentTransferComplete(*t) {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", msg, processingqueue.ErrDeferRetry)
 }
 
 func requireSavePathAndHash(savePath, torrentHash *string, mediaID uint) (string, string, error) {

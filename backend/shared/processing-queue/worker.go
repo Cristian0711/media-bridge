@@ -87,21 +87,26 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 
 		if err != nil {
 			permanent := errors.Is(err, ErrPermanentFailure)
+			deferRetry := errors.Is(err, ErrDeferRetry)
 			slog.WarnContext(ctx, "processingqueue: job failed",
 				"queue", q.name,
 				"job_id", job.ID,
 				"attempts", job.Attempts,
 				"max_attempts", job.MaxAttempts,
 				"permanent", permanent,
+				"defer", deferRetry,
 				"error", err,
 			)
 			var (
 				rows    int64
 				failErr error
 			)
-			if permanent {
+			switch {
+			case deferRetry:
+				rows, failErr = q.Defer(ctx, job.ID, err)
+			case permanent:
 				rows, failErr = q.FailPermanent(ctx, job.ID, err)
-			} else {
+			default:
 				rows, failErr = q.Fail(ctx, job.ID, err)
 			}
 			if failErr != nil {

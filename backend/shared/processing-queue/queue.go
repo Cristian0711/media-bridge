@@ -48,6 +48,11 @@ import (
 // the job 'failed' immediately instead of requeueing it.
 var ErrPermanentFailure = errors.New("permanent failure")
 
+// ErrDeferRetry marks a transient condition where the job should be retried
+// later without consuming an attempt (e.g. torrent still downloading while
+// waiting to hardlink). Dequeue increments attempts; Defer rolls that back.
+var ErrDeferRetry = errors.New("defer retry")
+
 // Queue is a typed processing queue backed by a Postgres table.
 // T is the payload type — it must be JSON-serialisable.
 type Queue[T any] struct {
@@ -314,6 +319,31 @@ func (q *Queue[T]) CancelByPayloadField(ctx context.Context, field string, value
 	tag, err := q.db.Exec(ctx, sql, q.name, value)
 	if err != nil {
 		return 0, fmt.Errorf("cancel by payload field %s: %w", field, err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// Defer requeues a processing job without counting the current run as a failed
+// attempt. Use when the handler returns ErrDeferRetry (unwrap via errors.Is).
+func (q *Queue[T]) Defer(ctx context.Context, jobID uuid.UUID, reason error) (int64, error) {
+	errMsg := ""
+	if reason != nil {
+		errMsg = reason.Error()
+	}
+	sql := fmt.Sprintf(`
+		UPDATE %s
+		SET
+			status      = 'pending',
+			queued_at   = NOW(),
+			retry_after = $3,
+			worker_id   = NULL,
+			error       = $2,
+			attempts    = GREATEST(attempts - 1, 0)
+		WHERE id = $1 AND status = 'processing'
+	`, q.opts.Table)
+	tag, err := q.db.Exec(ctx, sql, jobID, errMsg, q.opts.RetryAfter.Microseconds())
+	if err != nil {
+		return 0, fmt.Errorf("defer job %s: %w", jobID, err)
 	}
 	return tag.RowsAffected(), nil
 }

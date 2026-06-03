@@ -116,10 +116,19 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 		// Mark the request failed when this attempt won't be retried:
 		//  - permanent failure (sentinel), or
 		//  - we just consumed the final attempt and the queue will set 'failed'.
+		// Defer retries (torrent still downloading) do not count as final.
 		permanent := errors.Is(err, processingqueue.ErrPermanentFailure)
-		finalAttempt := job.Attempts >= job.MaxAttempts
+		deferRetry := errors.Is(err, processingqueue.ErrDeferRetry)
+		finalAttempt := !deferRetry && job.Attempts >= job.MaxAttempts
 		if permanent || finalAttempt {
 			p.markRequest(ctx, log, job.Payload.RequestEntryID, "failed")
+		}
+		if deferRetry {
+			log.Debug("hardlink deferred until torrent finishes downloading",
+				zap.String("job_id", job.ID.String()),
+				zap.Uint("media_id", job.Payload.MediaID),
+				zap.Error(err),
+			)
 		}
 		return err
 	}

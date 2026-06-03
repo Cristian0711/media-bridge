@@ -278,3 +278,51 @@ func TestWorker_ConcurrentWorkersProcessEachJobOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestWorker_DeferRetryDoesNotExhaustMaxAttempts verifies ErrDeferRetry requeues
+// without burning attempts toward max_attempts (e.g. torrent still downloading).
+func TestWorker_DeferRetryDoesNotExhaustMaxAttempts(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	q, table := newQueue(t, pool,
+		processingqueue.WithMaxAttempts(3),
+		processingqueue.WithRetryAfter(50*time.Millisecond),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var mu sync.Mutex
+	runs := 0
+	q.StartWorker(ctx, "w1", func(_ context.Context, _ *processingqueue.Job[wPayload]) error {
+		mu.Lock()
+		runs++
+		mu.Unlock()
+		return fmt.Errorf("not ready: %w", processingqueue.ErrDeferRetry)
+	})
+
+	if err := q.Enqueue(ctx, wPayload{N: 1}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return runs >= 8
+	}, "multiple defer retries")
+
+	var status string
+	var attempts int
+	err := pool.QueryRow(ctx, fmt.Sprintf(
+		`SELECT status, attempts FROM %s ORDER BY queued_at DESC LIMIT 1`, table,
+	)).Scan(&status, &attempts)
+	if err != nil {
+		t.Fatalf("query job: %v", err)
+	}
+	if status == "failed" {
+		t.Fatalf("defer retries should not mark job failed, status=%s attempts=%d runs=%d", status, attempts, runs)
+	}
+	if attempts >= 3 {
+		t.Fatalf("defer should not burn attempts toward max; attempts=%d runs=%d", attempts, runs)
+	}
+}
