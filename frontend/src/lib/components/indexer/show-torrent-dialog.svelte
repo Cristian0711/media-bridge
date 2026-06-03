@@ -76,13 +76,15 @@
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
-  async function handleDownload(show: IndexerShow) {
+  async function handleDownload(show: IndexerShow, unparsed = false) {
     if (!mediaItem) return;
     downloading = true;
     try {
+      // Unparsed torrents have season/episode 0; API requires season (non-zero).
+      const season = unparsed ? 1 : show.season;
       const body = {
         name: mediaItem.title,
-        season: show.season,
+        season,
         imdb_id: mediaItem.ids.imdb,
         tvdb_id: mediaItem.ids.tvdb?.toString(),
         poster_url: posterFromItem(mediaItem),
@@ -90,7 +92,7 @@
         torrent_name: show.name,
         indexer: show.indexer_name,
         quality: show.quality,
-        ...(show.complete_season ? {} : { episode: show.episode }),
+        ...(unparsed ? { episode: 0 } : show.complete_season ? {} : { episode: show.episode }),
       };
       const ack = await downloadShow(body);
       onOpenChange(false);
@@ -113,7 +115,7 @@
     <div class="mb-1.5 flex min-w-0 items-start justify-between gap-2">
       <h3 class="min-w-0 flex-1 break-all text-xs font-semibold">{show.name}</h3>
       <Button
-        onclick={() => handleDownload(show)}
+        onclick={() => handleDownload(show, unparsed)}
         size="sm"
         variant="ghost"
         class="h-6 w-6 shrink-0 p-0"
