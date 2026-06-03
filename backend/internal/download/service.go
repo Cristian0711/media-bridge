@@ -5,10 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/Cristian0711/media-bridge/backend/internal/indexer/prowlarr"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 )
 
@@ -112,19 +110,6 @@ func (s *service) Add(ctx context.Context, request RequestDetails) (*AddResult, 
 	}, nil
 }
 
-func detectIndexerFromURL(url string) string {
-	if prowlarr.IsProwlarrDownloadURL(url) {
-		return "prowlarr"
-	}
-	lower := strings.ToLower(url)
-	if strings.Contains(lower, "torrentleech.org") {
-		return "torrentleech"
-	}
-	if strings.Contains(lower, "filelist.io") {
-		return "filelist"
-	}
-	if strings.Contains(lower, "blutopia.cc") {
-		return "blutopia"
-	}
+func detectIndexerFromURL(string) string {
 	return "prowlarr"
 }

@@ -3,7 +3,6 @@ module github.com/Cristian0711/media-bridge/backend
 go 1.25.10
 
 require (
-	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/autobrr/go-qbittorrent v1.16.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -19,7 +18,6 @@ require (
 
 require (
 	github.com/Masterminds/semver v1.5.0 // indirect
-	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/avast/retry-go v3.0.0+incompatible // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect

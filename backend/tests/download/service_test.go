@@ -89,19 +89,13 @@ func TestAdd_RejectsInvalidBase64(t *testing.T) {
 	}
 }
 
-// Add picks the indexer from the torrent URL; assert via the id passed to the
-// downloader stub (covers detectIndexerFromURL).
-func TestAdd_DetectsIndexerFromURL(t *testing.T) {
-	cases := []struct {
-		url  string
-		want string
-	}{
-		{"https://www.torrentleech.org/download/123/x.torrent", "torrentleech"},
-		{"https://filelist.io/download.php?id=9", "filelist"},
-		{"https://blutopia.cc/torrents/download/55", "blutopia"},
-		{"https://unknown.example/file.torrent", "filelist"}, // default
+// All torrent downloads go through the Prowlarr provider regardless of URL host.
+func TestAdd_UsesProwlarrIndexer(t *testing.T) {
+	urls := []string{
+		"http://127.0.0.1:9696/1/download?apikey=x&link=y&file=z.torrent",
+		"https://filelist.io/download.php?id=9",
 	}
-	for _, c := range cases {
+	for _, u := range urls {
 		dl := &stubDownloader{payload: okPayload()}
 		qbit := testhelpers.StubQbit{
 			AddFunc: func(context.Context, []byte, string, string) (*qbittorrent.AddTorrentResponse, error) {
@@ -109,11 +103,11 @@ func TestAdd_DetectsIndexerFromURL(t *testing.T) {
 			},
 		}
 		svc := download.NewService(dl, qbit, "/dl")
-		if _, err := svc.Add(context.Background(), download.RequestDetails{TorrentURL: c.url}); err != nil {
-			t.Fatalf("Add(%s): %v", c.url, err)
+		if _, err := svc.Add(context.Background(), download.RequestDetails{TorrentURL: u}); err != nil {
+			t.Fatalf("Add(%s): %v", u, err)
 		}
-		if dl.gotIndexerID != c.want {
-			t.Errorf("url %s -> indexer %q, want %q", c.url, dl.gotIndexerID, c.want)
+		if dl.gotIndexerID != "prowlarr" {
+			t.Errorf("url %s -> indexer %q, want prowlarr", u, dl.gotIndexerID)
 		}
 	}
 }
