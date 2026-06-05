@@ -8,7 +8,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/j-muller/go-torrent-parser v0.0.0-20211014072822-db02b4099054
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.52.0
 	gorm.io/driver/postgres v1.6.0
