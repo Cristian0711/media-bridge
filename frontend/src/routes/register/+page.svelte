@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { Button } from '$lib/components/ui/button';
-  import AuthFormCard from '$lib/components/auth/auth-form-card.svelte';
+  import AuthForm from '$lib/components/auth/auth-form.svelte';
+  import AuthField from '$lib/components/auth/auth-field.svelte';
   import { register, login } from '$lib/auth/api';
   import { ApiError } from '$lib/api/client';
 
@@ -32,68 +32,46 @@
   }
 </script>
 
-<div
-  class="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+<AuthForm
+  title="Create account"
+  subtitle="You need an invite key to register"
+  {error}
+  {loading}
+  submitLabel="Register"
+  loadingLabel="Creating account…"
+  onSubmit={handleSubmit}
 >
-  <AuthFormCard title="Create account" subtitle="You need an invite key to register">
-    <form class="space-y-4" onsubmit={handleSubmit}>
-      <div class="space-y-2">
-        <label for="username" class="text-sm font-medium text-white/80">Username</label>
-        <input
-          id="username"
-          name="username"
-          type="text"
-          autocomplete="username"
-          required
-          minlength="3"
-          maxlength="32"
-          bind:value={username}
-          class="auth-input"
-        />
-      </div>
+  <AuthField
+    id="username"
+    label="Username"
+    autocomplete="username"
+    required
+    minlength={3}
+    maxlength={32}
+    bind:value={username}
+  />
+  <AuthField
+    id="password"
+    label="Password"
+    type="password"
+    autocomplete="new-password"
+    required
+    minlength={6}
+    maxlength={32}
+    bind:value={password}
+  />
+  <AuthField
+    id="key"
+    label="Invite key"
+    required
+    placeholder="Paste your invite key"
+    bind:value={key}
+  />
 
-      <div class="space-y-2">
-        <label for="password" class="text-sm font-medium text-white/80">Password</label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autocomplete="new-password"
-          required
-          minlength="6"
-          maxlength="32"
-          bind:value={password}
-          class="auth-input"
-        />
-      </div>
-
-      <div class="space-y-2">
-        <label for="key" class="text-sm font-medium text-white/80">Invite key</label>
-        <input
-          id="key"
-          name="key"
-          type="text"
-          required
-          bind:value={key}
-          class="auth-input"
-          placeholder="Paste your invite key"
-        />
-      </div>
-
-      {#if error}
-        <p class="text-sm text-red-400">{error}</p>
-      {/if}
-
-      <Button type="submit" class="w-full" disabled={loading}>
-        {loading ? 'Creating account…' : 'Register'}
-      </Button>
-    </form>
-
-    {#snippet footer()}
-      <p class="text-center text-sm text-muted-foreground">
-        Already have an account?
-        <a href="/login" class="text-primary hover:underline">Sign in</a>
-      </p>
-    {/snippet}
-  </AuthFormCard>
-</div>
+  {#snippet footer()}
+    <p class="text-center text-sm text-muted-foreground">
+      Already have an account?
+      <a href="/login" class="text-primary hover:underline">Sign in</a>
+    </p>
+  {/snippet}
+</AuthForm>
