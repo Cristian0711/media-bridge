@@ -18,7 +18,21 @@ type CallApiOptions = RequestInit & {
   auth?: boolean;
 };
 
-export async function callApi<T>(path: string, options: CallApiOptions = {}): Promise<T> {
+export type ApiResponse<T> = {
+  data: T;
+  headers: Headers;
+  status: number;
+};
+
+/**
+ * Performs an authenticated `/api/v1` request and returns the parsed body
+ * alongside the response headers and status. On 401 (when authed) it clears
+ * the token and redirects to /login; on any non-2xx it throws ApiError.
+ */
+export async function callApiRaw<T>(
+  path: string,
+  options: CallApiOptions = {},
+): Promise<ApiResponse<T>> {
   const { auth = true, ...init } = options;
 
   const headers = new Headers(init.headers);
@@ -67,5 +81,10 @@ export async function callApi<T>(path: string, options: CallApiOptions = {}): Pr
     throw new ApiError(res.status, message, body);
   }
 
-  return body as T;
+  return { data: body as T, headers: res.headers, status: res.status };
+}
+
+export async function callApi<T>(path: string, options: CallApiOptions = {}): Promise<T> {
+  const { data } = await callApiRaw<T>(path, options);
+  return data;
 }

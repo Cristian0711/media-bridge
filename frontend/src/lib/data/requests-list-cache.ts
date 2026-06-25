@@ -2,7 +2,7 @@ import { getAllRequests, getMyRequests } from '$lib/requests/list-api';
 import { fetchWithCache, getCached, invalidatePrefix, isFresh } from '$lib/data/list-cache';
 import { preloadPostersFromRequestsResponse } from '$lib/utils/poster-preload';
 import type { PaginatedRequestsResponse } from '$lib/types/request';
-import type { RequestsView } from '$lib/navigation/requests-ui';
+import type { RequestsView } from '$lib/data/requests-view';
 
 export const REQUESTS_LIST_PAGE_SIZE = 20;
 

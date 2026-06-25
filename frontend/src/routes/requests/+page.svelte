@@ -11,7 +11,7 @@
   } from '$lib/data/requests-list-cache';
   import { preloadPostersFromRequestsResponse } from '$lib/utils/poster-preload';
   import { getAllRequests, getMyRequests } from '$lib/requests/list-api';
-  import { requestsView, type RequestsView } from '$lib/navigation/requests-ui';
+  import { requestsView, type RequestsView } from '$lib/data/requests-view';
   import type { PaginatedRequestsResponse, RequestRow } from '$lib/types/request';
   import { ApiError } from '$lib/api/client';
   import { requestsListVersion } from '$lib/sse/live-updates';

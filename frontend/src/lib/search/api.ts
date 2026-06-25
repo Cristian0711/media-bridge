@@ -1,5 +1,4 @@
-import { ApiError } from '$lib/api/client';
-import { getToken } from '$lib/auth/session';
+import { callApi, callApiRaw } from '$lib/api/client';
 import type { MediaItem, MediaType } from '$lib/types/media';
 import type { SearchResult } from '$lib/types/search';
 
@@ -27,36 +26,9 @@ async function fetchExternalIdsRaw(
   tmdbId: number,
 ): Promise<MovieExternalIds | ShowExternalIds> {
   const params = new URLSearchParams({ type, tmdb_id: String(tmdbId) });
-  const headers = new Headers();
-  const token = getToken();
-  if (!token) {
-    throw new ApiError(401, 'Not authenticated');
-  }
-  headers.set('Authorization', `Bearer ${token}`);
-
-  const res = await fetch(`/api/v1/search/external-ids?${params.toString()}`, {
-    headers,
-    credentials: 'include',
-  });
-  const text = await res.text();
-  let body: unknown = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  }
-
-  if (!res.ok) {
-    const message =
-      typeof body === 'object' && body !== null && 'error' in body
-        ? String((body as { error: string }).error)
-        : res.statusText || 'Request failed';
-    throw new ApiError(res.status, message, body);
-  }
-
-  return body as MovieExternalIds | ShowExternalIds;
+  return callApi<MovieExternalIds | ShowExternalIds>(
+    `/search/external-ids?${params.toString()}`,
+  );
 }
 
 export async function fetchMovieExternalIds(tmdbId: number): Promise<MovieExternalIds> {
@@ -117,37 +89,15 @@ export async function resolveItemForIndexer(
 
 export async function searchMedia(query: string, page = 1): Promise<SearchPage> {
   const params = new URLSearchParams({ query, page: String(page) });
-  const headers = new Headers();
-  const token = getToken();
-  if (!token) {
-    throw new ApiError(401, 'Not authenticated');
-  }
-  headers.set('Authorization', `Bearer ${token}`);
+  const { data, headers } = await callApiRaw<SearchResult[] | null>(
+    `/search?${params.toString()}`,
+  );
 
-  const res = await fetch(`/api/v1/search?${params.toString()}`, { headers, credentials: 'include' });
-  const text = await res.text();
-  let body: unknown = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  }
-
-  if (!res.ok) {
-    const message =
-      typeof body === 'object' && body !== null && 'error' in body
-        ? String((body as { error: string }).error)
-        : res.statusText || 'Request failed';
-    throw new ApiError(res.status, message, body);
-  }
-
-  const pageNum = parseInt(res.headers.get('X-Search-Page') ?? String(page), 10) || page;
-  const totalPages = parseInt(res.headers.get('X-Search-Total-Pages') ?? '1', 10) || 1;
+  const pageNum = parseInt(headers.get('X-Search-Page') ?? String(page), 10) || page;
+  const totalPages = parseInt(headers.get('X-Search-Total-Pages') ?? '1', 10) || 1;
 
   return {
-    results: (body ?? []) as SearchResult[],
+    results: data ?? [],
     page: pageNum,
     totalPages,
   };

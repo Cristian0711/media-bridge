@@ -2,7 +2,7 @@ import * as mediaApi from '$lib/media/api';
 import { fetchWithCache, getCached, invalidatePrefix, isFresh } from '$lib/data/list-cache';
 import { preloadPostersFromMediaResponse } from '$lib/utils/poster-preload';
 import type { PaginatedMediaResponse } from '$lib/types/media-library';
-import type { LibraryView } from '$lib/navigation/library-ui';
+import type { LibraryView } from '$lib/data/library-view';
 
 export const MEDIA_LIST_PAGE_SIZE = 20;
 

@@ -17,11 +17,11 @@
   import { preloadPosterUrls } from '$lib/utils/poster-preload';
   import * as mediaApi from '$lib/media/api';
   import { formatSizeGB, toLibraryItem } from '$lib/media/map';
-  import { libraryView } from '$lib/navigation/library-ui';
+  import { libraryView } from '$lib/data/library-view';
   import { removeMovie, removeShow } from '$lib/requests/api';
   import { mediaListVersion } from '$lib/sse/live-updates';
   import { infiniteScroll } from '$lib/utils/infinite-scroll';
-  import type { LibraryView } from '$lib/navigation/library-ui';
+  import type { LibraryView } from '$lib/data/library-view';
   import type { MediaLibraryItem as LibraryItem, PaginatedMediaResponse } from '$lib/types/media-library';
   import { Film, Loader2, RefreshCw, Search, Users } from 'lucide-svelte';
 
