@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import { Search, Download, Calendar, ExternalLink } from 'lucide-svelte';
+  import { Search, Download, Calendar, ExternalLink, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl } from '$lib/search/map';
+  import { availabilityItem, getAvailability, requestAvailability } from '$lib/media/availability';
   import type { MediaItem, MediaType } from '$lib/types/media';
 
   interface Props {
@@ -14,6 +15,12 @@
   let { item, mediaType, onSearch, onDownload }: Props = $props();
 
   const imageSrc = $derived(posterUrl(item.images.poster));
+  const availKey = $derived(availabilityItem(item, mediaType));
+  const available = $derived(getAvailability(availKey)?.available ?? false);
+
+  $effect(() => {
+    requestAvailability(availKey);
+  });
 </script>
 
 <div
@@ -42,6 +49,9 @@
         <span class="ml-1">
           · {mediaType === 'movies' ? 'Movie' : 'TV Show'}
         </span>
+        {#if available}
+          <CheckCircle2 class="ml-1 h-3.5 w-3.5 text-green-500" aria-label="Already on your server" />
+        {/if}
       </div>
 
       <div class="flex items-center gap-2 text-xs">

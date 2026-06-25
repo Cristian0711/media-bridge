@@ -7,7 +7,7 @@
     DialogDescription,
   } from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
-  import { Download } from 'lucide-svelte';
+  import { Download, CheckCircle2 } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -16,6 +16,8 @@
     qualities: string[];
     loading?: boolean;
     onSelectQuality: (quality: string) => void;
+    /** Qualities already in the library for this title (or season). */
+    ownedQualities?: string[];
   }
 
   let {
@@ -25,6 +27,7 @@
     qualities,
     loading = false,
     onSelectQuality,
+    ownedQualities = [],
   }: Props = $props();
 </script>
 
@@ -45,6 +48,7 @@
       {:else}
         <div class="flex flex-col gap-2">
           {#each qualities as quality (quality)}
+            {@const owned = ownedQualities.includes(quality)}
             <Button
               onclick={() => onSelectQuality(quality)}
               variant="outline"
@@ -52,6 +56,12 @@
             >
               <Download class="h-3.5 w-3.5 shrink-0" />
               {quality}
+              {#if owned}
+                <span class="ml-auto flex items-center gap-1 text-xs text-green-500">
+                  <CheckCircle2 class="h-3.5 w-3.5" />
+                  In library
+                </span>
+              {/if}
             </Button>
           {/each}
         </div>

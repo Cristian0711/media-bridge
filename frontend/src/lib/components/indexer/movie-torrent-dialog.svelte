@@ -14,7 +14,7 @@
   import QualityFilter from './quality-filter.svelte';
   import type { IndexerMovie } from '$lib/types/indexer';
   import type { MediaItem } from '$lib/types/media';
-  import { Info } from 'lucide-svelte';
+  import { Info, CheckCircle2 } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -24,6 +24,7 @@
     availableQualities?: string[];
     byIndexer?: Record<string, number>;
     total?: number;
+    ownedQualities?: string[];
     onQueued?: (message: string) => void;
     onError?: (message: string) => void;
   }
@@ -36,6 +37,7 @@
     availableQualities,
     byIndexer,
     total,
+    ownedQualities = [],
     onQueued,
     onError,
   }: Props = $props();
@@ -102,6 +104,16 @@
           {/if}
         </div>
       </DialogHeader>
+
+      {#if ownedQualities.length > 0}
+        <div class="mt-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-300">
+          <CheckCircle2 class="h-3.5 w-3.5 shrink-0" />
+          <span>In your library:</span>
+          {#each ownedQualities as q}
+            <Badge variant="secondary">{q}</Badge>
+          {/each}
+        </div>
+      {/if}
 
       {#if showIndexerInfo && byIndexer}
         <div class="mt-3 rounded-lg border border-border/40 bg-muted/30 p-3">

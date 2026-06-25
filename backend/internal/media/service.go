@@ -47,6 +47,8 @@ type Service interface {
 	GetMediaByID(ctx context.Context, id uint) (*Media, error)
 	SearchMedia(ctx context.Context, query string, page, pageSize int) (*PaginatedMediaResponse, error)
 	SearchMediaForUser(ctx context.Context, userID uint, query string, page, pageSize int) (*PaginatedMediaResponse, error)
+	// CheckAvailability reports, per requested title, whether it is in the library and at which qualities.
+	CheckAvailability(ctx context.Context, items []AvailabilityItem) ([]AvailabilityResult, error)
 }
 
 type service struct {

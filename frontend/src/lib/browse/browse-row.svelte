@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import { Download, Search } from 'lucide-svelte';
+  import { Download, Search, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl, toMediaItem } from '$lib/search/map';
+  import { availabilityItem, getAvailability, requestAvailability } from '$lib/media/availability';
   import type { MediaRow } from '$lib/media/media-action-host.svelte';
   import type { SearchResult } from '$lib/types/search';
 
@@ -19,6 +20,10 @@
   const rows = $derived(
     results.map(toMediaItem).filter((r): r is NonNullable<typeof r> => r !== null),
   );
+
+  $effect(() => {
+    for (const row of rows) requestAvailability(availabilityItem(row.item, row.mediaType));
+  });
 </script>
 
 <section class="mb-6">
@@ -33,15 +38,21 @@
   {:else}
     <div class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {#each rows as row, i (`${row.mediaType}-${row.item.ids.tmdb ?? i}`)}
+        {@const available = getAvailability(availabilityItem(row.item, row.mediaType))?.available ?? false}
         <article class="w-[7.5rem] shrink-0">
           <div class="flex h-[19rem] flex-col overflow-hidden rounded-lg border border-border/40 bg-card">
-            <div class="h-[11.25rem] w-full shrink-0 overflow-hidden bg-muted">
+            <div class="relative h-[11.25rem] w-full shrink-0 overflow-hidden bg-muted">
               <img
                 src={posterUrl(row.item.images.poster)}
                 alt="{row.item.title} poster"
                 class="h-full w-full object-cover"
                 loading="lazy"
               />
+              {#if available}
+                <div class="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 backdrop-blur-sm">
+                  <CheckCircle2 class="h-4 w-4 text-green-400" aria-label="Already on your server" />
+                </div>
+              {/if}
             </div>
             <div class="flex h-[7.75rem] flex-col gap-1 p-2">
               <p

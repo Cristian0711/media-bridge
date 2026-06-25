@@ -15,6 +15,7 @@
   import { downloadMovie, downloadShow } from '$lib/requests/api';
   import { ApiError } from '$lib/api/client';
   import { resolveItemForIndexer } from '$lib/search/api';
+  import { availabilityItem, fetchOwnedQualities } from '$lib/media/availability';
   import { indexerParamsFor, posterFromItem } from '$lib/search/indexer-params';
   import { MEDIA_UNAVAILABLE, NO_FREELEECH, showToast } from '$lib/toast/toast.svelte';
   import type { IndexerMovie, IndexerShow } from '$lib/types/indexer';
@@ -60,6 +61,14 @@
   let downloadQualities = $state<string[]>([]);
   let downloadQualityLoading = $state(false);
   let downloadContext = $state<DownloadContext | null>(null);
+
+  // Qualities already in the library for the active dialog's title (season-scoped for shows).
+  let ownedQualities = $state<string[]>([]);
+
+  async function loadOwnedQualities(item: MediaItem, mediaType: MediaType, season?: number) {
+    ownedQualities = [];
+    ownedQualities = await fetchOwnedQualities(availabilityItem(item, mediaType, season));
+  }
 
   function openMovieDialog(response: Awaited<ReturnType<typeof searchMovies>>) {
     if (!response.movies?.length) {
@@ -183,6 +192,7 @@
     selectedRow = row;
     error = '';
     statusMessage = '';
+    ownedQualities = [];
 
     try {
       const item = await resolveItemForIndexer(row.item, row.mediaType);
@@ -191,6 +201,7 @@
       if (row.mediaType === 'movies') {
         const response = await searchMovies(indexerParamsFor(item));
         openMovieDialog(response);
+        void loadOwnedQualities(item, 'movies');
       } else {
         pendingDownload = false;
         seasonCount = await probeSeasons(item, row.mediaType);
@@ -209,6 +220,7 @@
     selectedRow = row;
     error = '';
     statusMessage = '';
+    ownedQualities = [];
 
     try {
       const item = await resolveItemForIndexer(row.item, row.mediaType);
@@ -224,6 +236,7 @@
           { item, mediaType: 'movies' },
           freeleechMovieQualities(response.movies ?? []),
         );
+        void loadOwnedQualities(item, 'movies');
       } else {
         pendingDownload = true;
         downloadContext = { item, mediaType: 'shows' };
@@ -282,10 +295,12 @@
           { item, mediaType: 'shows', season },
           freeleechShowQualities(all),
         );
+        void loadOwnedQualities(item, 'shows', season);
         return;
       }
 
       await openShowDialog(response, season);
+      void loadOwnedQualities(item, 'shows', season === 'all' ? undefined : season);
     } catch (e) {
       pendingDownload = false;
       downloadContext = null;
@@ -318,6 +333,7 @@
   total={movieTotal}
   byIndexer={movieByIndexer}
   availableQualities={movieQualities}
+  {ownedQualities}
   onQueued={onQueued}
   onError={onDialogError}
 />
@@ -347,6 +363,7 @@
   total={showTotal}
   byIndexer={showByIndexer}
   availableQualities={showQualities}
+  {ownedQualities}
   onQueued={onQueued}
   onError={onDialogError}
 />
@@ -363,5 +380,6 @@
   title={downloadContext?.item.title ?? ''}
   qualities={downloadQualities}
   loading={downloadQualityLoading}
+  {ownedQualities}
   onSelectQuality={onDownloadQualitySelected}
 />

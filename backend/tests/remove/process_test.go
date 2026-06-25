@@ -44,6 +44,9 @@ func (s *stubMediaService) SearchMedia(context.Context, string, int, int) (*medi
 func (s *stubMediaService) SearchMediaForUser(context.Context, uint, string, int, int) (*media.PaginatedMediaResponse, error) {
 	return nil, nil
 }
+func (s *stubMediaService) CheckAvailability(context.Context, []media.AvailabilityItem) ([]media.AvailabilityResult, error) {
+	return nil, nil
+}
 
 type stubQbitService struct {
 	removedHash string

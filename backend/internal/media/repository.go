@@ -21,6 +21,9 @@ type Repository interface {
 	FindMediaIDsByShowScope(ctx context.Context, showID uint, quality string, season, episode *int) ([]uint, error)
 	FindShowByExternalIDOrName(ctx context.Context, imdbID, tvdbID, name string) (*Show, error)
 	FindShowEntryIDsByShowAndScope(ctx context.Context, showID uint, quality string, season, episode *int) ([]uint, error)
+	// MovieQualitiesByExternalIDs / ShowQualitiesByExternalIDs back the bulk availability lookup.
+	MovieQualitiesByExternalIDs(ctx context.Context, imdbIDs, tmdbIDs []string) ([]movieQualityRow, error)
+	ShowQualitiesByExternalIDs(ctx context.Context, imdbIDs, tvdbIDs []string) ([]showQualityRow, error)
 	// DeleteMovieMediaCascade removes media + orphan movie in one transaction (R3).
 	DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error
 	// DeleteShowMediaCascade removes media + orphan show_entry/show in one transaction (R3).
