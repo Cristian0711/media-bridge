@@ -1,29 +1,25 @@
-export type SearchMoviePayload = {
+type SearchIds = {
+  trakt?: number;
+  slug?: string;
+  imdb?: string;
+  tmdb?: number;
+};
+
+type SearchPayload = {
   title: string;
   year: number;
-  ids: {
-    trakt?: number;
-    slug?: string;
-    imdb?: string;
-    tmdb?: number;
-  };
   images: {
     poster: string[];
   };
 };
 
-export type SearchShowPayload = {
-  title: string;
-  year: number;
-  ids: {
-    trakt?: number;
-    slug?: string;
-    imdb?: string;
+export type SearchMoviePayload = SearchPayload & {
+  ids: SearchIds;
+};
+
+export type SearchShowPayload = SearchPayload & {
+  ids: SearchIds & {
     tvdb?: number;
-    tmdb?: number;
-  };
-  images: {
-    poster: string[];
   };
 };
 

@@ -1,4 +1,5 @@
-export type IndexerMovie = {
+/** Fields shared by every indexer torrent result (movie or show). */
+export type IndexerTorrent = {
   id: number;
   name: string;
   imdb: string;
@@ -13,19 +14,9 @@ export type IndexerMovie = {
   indexer_name: string;
 };
 
-export type IndexerShow = {
-  id: number;
-  name: string;
-  imdb: string;
-  freeleech: number;
-  size: number;
-  category: string;
-  seeders: number;
-  leechers: number;
-  times_completed: number;
-  download_link: string;
-  quality: string;
-  indexer_name: string;
+export type IndexerMovie = IndexerTorrent;
+
+export type IndexerShow = IndexerTorrent & {
   season: number;
   episode: number;
   complete_season: boolean;
