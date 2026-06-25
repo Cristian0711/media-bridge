@@ -1,4 +1,5 @@
 import { callApi } from '$lib/api/client';
+import { buildQuery } from '$lib/api/query';
 import type { PaginatedMediaResponse } from '$lib/types/media-library';
 
 type ListParams = {
@@ -7,12 +8,11 @@ type ListParams = {
 };
 
 function queryString(params: ListParams & { q?: string }): string {
-  const search = new URLSearchParams();
-  if (params.page) search.set('page', String(params.page));
-  if (params.pageSize) search.set('page_size', String(params.pageSize));
-  if (params.q?.trim()) search.set('q', params.q.trim());
-  const qs = search.toString();
-  return qs ? `?${qs}` : '';
+  return buildQuery({
+    page: params.page || undefined,
+    page_size: params.pageSize || undefined,
+    q: params.q?.trim() || undefined,
+  });
 }
 
 export async function getAllMedia(params: ListParams = {}): Promise<PaginatedMediaResponse> {

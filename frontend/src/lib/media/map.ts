@@ -1,5 +1,9 @@
 import type { ApiMedia, MediaLibraryItem } from '$lib/types/media-library';
 
+export { formatSizeGB } from '$lib/utils/format-size';
+export { formatRelativeTime } from '$lib/utils/format-time';
+export { normalizePosterUrl as posterUrl } from '$lib/utils/poster-url';
+
 export function toLibraryItem(row: ApiMedia): MediaLibraryItem {
   let poster_url: string | undefined;
   let imdb_id: string | undefined;
@@ -40,22 +44,6 @@ export function toLibraryItem(row: ApiMedia): MediaLibraryItem {
   };
 }
 
-/** Formats torrent size in gigabytes (binary GB). */
-export function formatSizeGB(bytes?: number): string | null {
-  if (!bytes || bytes <= 0) return null;
-  const gb = bytes / 1024 ** 3;
-  if (gb >= 100) return `${Math.round(gb)} GB`;
-  if (gb >= 10) return `${gb.toFixed(1)} GB`;
-  return `${gb.toFixed(2)} GB`;
-}
-
-export function posterUrl(url?: string | null): string | undefined {
-  if (!url) return undefined;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('//')) return `https:${url}`;
-  return `https://${url}`;
-}
-
 export function mediaTypeLabel(type: MediaLibraryItem['type']): string {
   switch (type) {
     case 'movie':
@@ -79,25 +67,4 @@ export function mediaDetail(item: MediaLibraryItem): string {
     return `Season ${item.season}`;
   }
   return '';
-}
-
-export function formatRelativeTime(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return 'Unknown';
-
-    const diffMs = Date.now() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return 'Unknown';
-  }
 }

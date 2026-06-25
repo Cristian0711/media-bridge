@@ -1,5 +1,8 @@
 import type { MediaItem, MediaType } from '$lib/types/media';
 import type { SearchResult } from '$lib/types/search';
+import { normalizePosterUrl } from '$lib/utils/poster-url';
+
+const POSTER_PLACEHOLDER = 'https://via.placeholder.com/56x80/1a1a2e/eee?text=No+Image';
 
 export function toMediaItem(result: SearchResult): { item: MediaItem; mediaType: MediaType } | null {
   if (result.type === 'movie' && result.movie) {
@@ -30,12 +33,5 @@ export function toMediaItem(result: SearchResult): { item: MediaItem; mediaType:
 }
 
 export function posterUrl(poster: string[] | undefined): string {
-  const path = poster?.[0];
-  if (!path) {
-    return 'https://via.placeholder.com/56x80/1a1a2e/eee?text=No+Image';
-  }
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return path;
-  }
-  return `https://${path}`;
+  return normalizePosterUrl(poster?.[0]) ?? POSTER_PLACEHOLDER;
 }

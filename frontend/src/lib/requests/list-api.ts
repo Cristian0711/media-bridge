@@ -1,4 +1,5 @@
 import { callApi } from '$lib/api/client';
+import { buildQuery } from '$lib/api/query';
 import type { PaginatedRequestsResponse } from '$lib/types/request';
 
 type ListParams = {
@@ -7,11 +8,10 @@ type ListParams = {
 };
 
 function queryString(params: ListParams): string {
-  const search = new URLSearchParams();
-  if (params.page) search.set('page', String(params.page));
-  if (params.pageSize) search.set('page_size', String(params.pageSize));
-  const qs = search.toString();
-  return qs ? `?${qs}` : '';
+  return buildQuery({
+    page: params.page || undefined,
+    page_size: params.pageSize || undefined,
+  });
 }
 
 export async function getAllRequests(params: ListParams = {}): Promise<PaginatedRequestsResponse> {

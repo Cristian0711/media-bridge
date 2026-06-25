@@ -1,11 +1,7 @@
 import type { RequestRow } from '$lib/types/request';
 
-export function posterUrl(url?: string): string | undefined {
-  if (!url) return undefined;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('//')) return `https:${url}`;
-  return `https://${url}`;
-}
+export { normalizePosterUrl as posterUrl } from '$lib/utils/poster-url';
+export { formatRelativeTime } from '$lib/utils/format-time';
 
 export function isShowRequest(type: string): boolean {
   return type.startsWith('show_');
@@ -38,27 +34,6 @@ export function showScope(req: RequestRow): string {
   }
   if (req.season) return `Season ${req.season}`;
   return 'Full series';
-}
-
-export function formatRelativeTime(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return 'Unknown';
-
-    const diffMs = Date.now() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return 'Unknown';
-  }
 }
 
 export function statusBadgeClass(status: string): string {

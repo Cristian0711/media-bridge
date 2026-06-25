@@ -1,4 +1,5 @@
 import { callApi } from '$lib/api/client';
+import { buildQuery } from '$lib/api/query';
 import type { MovieSearchResponse, ShowSearchResponse } from '$lib/types/indexer';
 
 export type IndexerSearchParams = {
@@ -9,12 +10,12 @@ export type IndexerSearchParams = {
 };
 
 function qs(params: IndexerSearchParams): string {
-  const search = new URLSearchParams();
-  search.set('imdb_id', params.imdb_id);
-  if (params.season) search.set('season', String(params.season));
-  if (params.episode) search.set('episode', String(params.episode));
-  if (params.quality) search.set('quality', params.quality);
-  return `?${search.toString()}`;
+  return buildQuery({
+    imdb_id: params.imdb_id,
+    season: params.season || undefined,
+    episode: params.episode || undefined,
+    quality: params.quality || undefined,
+  });
 }
 
 export async function searchMovies(params: IndexerSearchParams): Promise<MovieSearchResponse> {

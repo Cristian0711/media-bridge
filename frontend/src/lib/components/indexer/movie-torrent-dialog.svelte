@@ -9,6 +9,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import { downloadMovie } from '$lib/requests/api';
+  import { formatGbFixed } from '$lib/utils/format-size';
   import { posterFromItem } from '$lib/search/indexer-params';
   import type { IndexerMovie } from '$lib/types/indexer';
   import type { MediaItem } from '$lib/types/media';
@@ -48,10 +49,6 @@
       ? movies.filter((m) => m.quality === selectedQuality)
       : movies || [],
   );
-
-  function formatSize(bytes: number): string {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
 
   async function handleDownload(movie: IndexerMovie) {
     if (!mediaItem?.ids.imdb) {
@@ -189,7 +186,7 @@
                 {/if}
               </div>
               <div class="flex flex-wrap gap-3 text-[0.65rem] text-muted-foreground">
-                <span class="inline-flex items-center gap-1"><HardDrive class="h-3 w-3" />{formatSize(movie.size)}</span>
+                <span class="inline-flex items-center gap-1"><HardDrive class="h-3 w-3" />{formatGbFixed(movie.size)}</span>
                 <span class="inline-flex items-center gap-1 text-green-500"><ArrowDownToLine class="h-3 w-3" />{movie.seeders}</span>
                 <span class="inline-flex items-center gap-1 text-amber-500"><Users class="h-3 w-3" />{movie.leechers}</span>
               </div>
