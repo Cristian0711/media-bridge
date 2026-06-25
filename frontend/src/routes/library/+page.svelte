@@ -4,16 +4,14 @@
   import { Input } from '$lib/components/ui/input';
   import MediaLibraryItemCard from '$lib/components/media/media-library-item.svelte';
   import RemoveMediaDialog from '$lib/components/media/remove-media-dialog.svelte';
-  import {
-    getCached,
-    isFresh,
-  } from '$lib/data/list-cache';
+  import { getCached, isFresh } from '$lib/data/list-cache';
   import {
     invalidateMediaListCache,
     loadMediaListCached,
     mediaListCacheKey,
     MEDIA_LIST_PAGE_SIZE,
   } from '$lib/data/media-list-cache';
+  import { createPaginatedList } from '$lib/data/paginated-list.svelte';
   import { preloadPosterUrls } from '$lib/utils/poster-preload';
   import * as mediaApi from '$lib/media/api';
   import { formatSizeGB, toLibraryItem } from '$lib/media/map';
@@ -25,43 +23,21 @@
   import type { MediaLibraryItem as LibraryItem, PaginatedMediaResponse } from '$lib/types/media-library';
   import { Film, Loader2, RefreshCw, Search, Users } from 'lucide-svelte';
 
-  let items = $state<LibraryItem[]>([]);
-  let loading = $state(false);
-  let loadingMore = $state(false);
   let isSearching = $state(false);
-  let error = $state('');
   let statusMessage = $state('');
   let searchQuery = $state('');
   let submittedQuery = $state('');
-
-  let currentPage = $state(1);
-  let fetchGeneration = 0;
-  const pageSize = MEDIA_LIST_PAGE_SIZE;
-  let totalPages = $state(1);
-  let totalCount = $state(0);
   let totalSizeBytes = $state(0);
 
-  const hasMore = $derived(items.length > 0 && currentPage < totalPages);
+  const pageSize = MEDIA_LIST_PAGE_SIZE;
 
   let deleteOpen = $state(false);
   let itemToDelete = $state<LibraryItem | null>(null);
   let removing = $state(false);
 
-  function applyPageOne(response: PaginatedMediaResponse) {
-    items = response.media.map(toLibraryItem);
-    totalPages = Math.max(1, response.total_pages);
-    totalCount = response.total_count;
-    totalSizeBytes = response.total_size_bytes ?? 0;
-    currentPage = 1;
-    preloadPosterUrls(items.map((i) => i.poster_url));
-  }
-
-  async function fetchMediaPage(page: number) {
+  function fetchMediaPage(page: number) {
     const view = $libraryView;
     const q = submittedQuery.trim();
-    if (page === 1) {
-      return loadMediaListCached(view, 1, q, { force: true });
-    }
     const params = { page, pageSize };
     return q
       ? view === 'yours'
@@ -72,77 +48,25 @@
         : mediaApi.getAllMedia(params);
   }
 
-  async function reload(options?: { force?: boolean }) {
-    const generation = ++fetchGeneration;
-    loadingMore = false;
-    error = '';
-    statusMessage = '';
-    currentPage = 1;
-
-    const view = $libraryView;
-    const q = submittedQuery.trim();
-    const key = mediaListCacheKey(view, 1, q);
-    const cached = getCached<PaginatedMediaResponse>(key);
-
-    if (cached && !options?.force) {
-      applyPageOne(cached);
-      loading = false;
-    } else {
-      loading = true;
-    }
-
-    const needsFetch = options?.force || !cached || !isFresh(key);
-    if (!needsFetch) {
-      isSearching = false;
-      return;
-    }
-
-    try {
-      const response = await loadMediaListCached(view, 1, q, { force: options?.force });
-      if (generation !== fetchGeneration) return;
-      applyPageOne(response);
-    } catch (err) {
-      if (generation !== fetchGeneration) return;
-      if (!cached) {
-        error = err instanceof Error ? err.message : 'Failed to load media';
-        items = [];
-        totalCount = 0;
-        totalSizeBytes = 0;
-      }
-    } finally {
-      if (generation === fetchGeneration) {
-        loading = false;
-        isSearching = false;
-      }
-    }
-  }
-
-  async function loadMore() {
-    if (loading || loadingMore || !hasMore) return;
-
-    const generation = fetchGeneration;
-    const nextPage = currentPage + 1;
-    loadingMore = true;
-
-    try {
-      const response = await fetchMediaPage(nextPage);
-      if (generation !== fetchGeneration) return;
-
-      const next = response.media.map(toLibraryItem);
-      items = [...items, ...next];
-      totalPages = Math.max(1, response.total_pages);
-      totalCount = response.total_count;
-      totalSizeBytes = response.total_size_bytes ?? 0;
-      currentPage = nextPage;
-    } catch (err) {
-      if (generation !== fetchGeneration) return;
-      error = err instanceof Error ? err.message : 'Failed to load more';
-    } finally {
-      if (generation === fetchGeneration) {
-        loadingMore = false;
-      }
-    }
-  }
+  const list = createPaginatedList<PaginatedMediaResponse, LibraryItem>({
+    getCached: () =>
+      getCached<PaginatedMediaResponse>(mediaListCacheKey($libraryView, 1, submittedQuery.trim())),
+    isFresh: () => isFresh(mediaListCacheKey($libraryView, 1, submittedQuery.trim())),
+    loadPageOne: (options) =>
+      loadMediaListCached($libraryView, 1, submittedQuery.trim(), options),
+    fetchMore: (page) => fetchMediaPage(page),
+    toItems: (res) => res.media.map(toLibraryItem),
+    meta: (res) => ({ totalPages: res.total_pages, totalCount: res.total_count }),
+    onApply: (res, items) => {
+      totalSizeBytes = res.total_size_bytes ?? 0;
+      preloadPosterUrls(items.map((i) => i.poster_url));
+    },
+    onReloadStart: () => {
+      statusMessage = '';
+    },
+    errorMessage: (err, kind) =>
+      err instanceof Error ? err.message : kind === 'load' ? 'Failed to load media' : 'Failed to load more',
+  });
 
   function queryFromInput(el?: HTMLInputElement | null): string {
     return (el?.value ?? searchQuery).trim();
@@ -153,11 +77,13 @@
     searchQuery = q;
     submittedQuery = q;
     if (!q) {
-      await reload({ force: true });
+      await list.reload({ force: true });
+      isSearching = false;
       return;
     }
     isSearching = true;
-    await reload();
+    await list.reload();
+    isSearching = false;
   }
 
   function onSearchKeydown(e: KeyboardEvent) {
@@ -169,7 +95,7 @@
   function clearSearch() {
     searchQuery = '';
     submittedQuery = '';
-    void reload();
+    void list.reload();
   }
 
   function openRemove(item: LibraryItem) {
@@ -194,9 +120,9 @@
       invalidateMediaListCache();
       deleteOpen = false;
       itemToDelete = null;
-      void reload({ force: true });
+      void list.reload({ force: true });
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to request removal';
+      list.error = err instanceof Error ? err.message : 'Failed to request removal';
       deleteOpen = false;
       itemToDelete = null;
     } finally {
@@ -214,7 +140,7 @@
       sseHooked = true;
       return;
     }
-    untrack(() => void reload());
+    untrack(() => void list.reload());
   });
 
   $effect(() => {
@@ -227,12 +153,12 @@
     untrack(() => {
       submittedQuery = '';
       searchQuery = '';
-      void reload();
+      void list.reload();
     });
   });
 
   onMount(() => {
-    void reload();
+    void list.reload();
   });
 </script>
 
@@ -242,7 +168,7 @@
       <div class="rounded-lg border border-border/40 bg-card/50 px-3 py-2.5">
         <div class="flex items-center justify-between">
           <span class="text-white/80">Total</span>
-          <span class="font-semibold text-white">{totalCount}</span>
+          <span class="font-semibold text-white">{list.totalCount}</span>
         </div>
       </div>
       <div class="rounded-lg border border-border/40 bg-card/50 px-3 py-2.5">
@@ -284,19 +210,19 @@
         variant="outline"
         size="sm"
         class="h-9 w-9 p-0"
-        disabled={loading || isSearching}
+        disabled={list.loading || isSearching}
         aria-label={searchQuery.trim() ? 'Search' : 'Refresh list'}
       >
         {#if searchQuery.trim()}
           <Search class="h-4 w-4 {isSearching ? 'animate-spin' : ''}" />
         {:else}
-          <RefreshCw class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
+          <RefreshCw class="h-4 w-4 {list.loading ? 'animate-spin' : ''}" />
         {/if}
       </Button>
     </form>
 
-    {#if error}
-      <p class="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
+    {#if list.error}
+      <p class="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">{list.error}</p>
     {/if}
     {#if statusMessage}
       <p class="rounded-lg border border-green-500/40 bg-green-500/10 px-3 py-2 text-xs text-green-300">
@@ -306,14 +232,14 @@
   </div>
 
   <div class="min-h-[1px] px-3 py-3">
-    {#if loading && items.length === 0}
+    {#if list.loading && list.items.length === 0}
       <p class="py-12 text-center text-sm text-muted-foreground">Loading…</p>
-    {:else if items.length > 0}
+    {:else if list.items.length > 0}
       {#if submittedQuery}
         <p class="mb-3 text-xs text-muted-foreground">Results for “{submittedQuery}”</p>
       {/if}
 
-      {#each items as item, index (item.id)}
+      {#each list.items as item, index (item.id)}
         <MediaLibraryItemCard
           {item}
           {index}
@@ -321,20 +247,20 @@
         />
       {/each}
 
-      {#if hasMore}
+      {#if list.hasMore}
         <div
           class="flex justify-center py-6"
-          use:infiniteScroll={{ onLoadMore: loadMore }}
+          use:infiniteScroll={{ onLoadMore: list.loadMore }}
           aria-hidden="true"
         >
-          {#if loadingMore}
+          {#if list.loadingMore}
             <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
           {/if}
         </div>
       {:else}
         <p class="py-4 text-center text-xs text-muted-foreground">End of list</p>
       {/if}
-    {:else if !loading}
+    {:else if !list.loading}
       <div class="py-12 text-center">
         {#if submittedQuery}
           <Search class="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
