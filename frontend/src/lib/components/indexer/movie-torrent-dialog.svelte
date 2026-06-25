@@ -9,11 +9,12 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import { downloadMovie } from '$lib/requests/api';
-  import { formatGbFixed } from '$lib/utils/format-size';
   import { posterFromItem } from '$lib/search/indexer-params';
+  import TorrentRow from './torrent-row.svelte';
+  import QualityFilter from './quality-filter.svelte';
   import type { IndexerMovie } from '$lib/types/indexer';
   import type { MediaItem } from '$lib/types/media';
-  import { Download, Users, ArrowDownToLine, HardDrive, Filter, Info } from 'lucide-svelte';
+  import { Info } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -40,7 +41,6 @@
   }: Props = $props();
 
   let selectedQuality = $state<string | null>(null);
-  let showQualityFilter = $state(false);
   let showIndexerInfo = $state(false);
   let downloading = $state(false);
 
@@ -116,47 +116,7 @@
       {/if}
 
       {#if availableQualities && availableQualities.length > 1}
-        <div class="mt-3">
-          <Button
-            onclick={() => (showQualityFilter = !showQualityFilter)}
-            size="sm"
-            variant="outline"
-            class="h-8 w-full text-xs"
-          >
-            <Filter class="mr-1 h-3 w-3" />
-            {selectedQuality ?? 'Filter by quality'}
-          </Button>
-          {#if showQualityFilter}
-            <div class="mt-2 grid grid-cols-2 gap-1.5">
-              {#each availableQualities as quality}
-                <Button
-                  onclick={() => {
-                    selectedQuality = quality;
-                    showQualityFilter = false;
-                  }}
-                  size="sm"
-                  variant={selectedQuality === quality ? 'default' : 'outline'}
-                  class="h-8 text-xs"
-                >
-                  {quality}
-                </Button>
-              {/each}
-              {#if selectedQuality}
-                <Button
-                  onclick={() => {
-                    selectedQuality = null;
-                    showQualityFilter = false;
-                  }}
-                  size="sm"
-                  variant="ghost"
-                  class="col-span-2 h-8 text-xs"
-                >
-                  Show all
-                </Button>
-              {/if}
-            </div>
-          {/if}
-        </div>
+        <QualityFilter qualities={availableQualities} bind:selected={selectedQuality} clearable />
       {/if}
     </div>
 
@@ -164,33 +124,18 @@
       {#if filteredMovies.length > 0}
         <div class="space-y-2">
           {#each filteredMovies as movie (`${movie.indexer_name}:${movie.id}:${movie.download_link}`)}
-            <div class="min-w-0 overflow-hidden rounded-lg border border-border/40 bg-card/50 p-2.5">
-              <div class="mb-1.5 flex min-w-0 items-start justify-between gap-2">
-                <h3 class="min-w-0 flex-1 break-all text-xs font-semibold">{movie.name}</h3>
-                <Button
-                  onclick={() => handleDownload(movie)}
-                  size="sm"
-                  variant="ghost"
-                  class="h-6 w-6 shrink-0 p-0"
-                  disabled={downloading}
-                >
-                  <Download class="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <div class="mb-2 flex flex-wrap gap-1.5">
-                <Badge variant="outline">{movie.indexer_name}</Badge>
-                <Badge variant="secondary">{movie.quality}</Badge>
-                <Badge variant="outline">{movie.category}</Badge>
-                {#if movie.freeleech === 1}
-                  <Badge variant="default" class="bg-green-600">Freeleech</Badge>
-                {/if}
-              </div>
-              <div class="flex flex-wrap gap-3 text-[0.65rem] text-muted-foreground">
-                <span class="inline-flex items-center gap-1"><HardDrive class="h-3 w-3" />{formatGbFixed(movie.size)}</span>
-                <span class="inline-flex items-center gap-1 text-green-500"><ArrowDownToLine class="h-3 w-3" />{movie.seeders}</span>
-                <span class="inline-flex items-center gap-1 text-amber-500"><Users class="h-3 w-3" />{movie.leechers}</span>
-              </div>
-            </div>
+            <TorrentRow
+              name={movie.name}
+              indexerName={movie.indexer_name}
+              quality={movie.quality}
+              category={movie.category}
+              freeleech={movie.freeleech}
+              size={movie.size}
+              seeders={movie.seeders}
+              leechers={movie.leechers}
+              {downloading}
+              onDownload={() => handleDownload(movie)}
+            />
           {/each}
         </div>
       {:else}

@@ -9,11 +9,12 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import { downloadShow } from '$lib/requests/api';
-  import { formatGbFixed } from '$lib/utils/format-size';
   import { posterFromItem } from '$lib/search/indexer-params';
+  import TorrentRow from './torrent-row.svelte';
+  import QualityFilter from './quality-filter.svelte';
   import type { IndexerShow } from '$lib/types/indexer';
   import type { MediaItem } from '$lib/types/media';
-  import { Download, Users, ArrowDownToLine, HardDrive, Filter, Info } from 'lucide-svelte';
+  import { Filter, Info } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -48,7 +49,6 @@
   let episodeFilter = $state<number | null>(null);
   let showEpisodeFilter = $state(false);
   let selectedQuality = $state<string | null>(null);
-  let showQualityFilter = $state(false);
   let showIndexerInfo = $state(false);
   let downloading = $state(false);
 
@@ -104,47 +104,16 @@
   }
 </script>
 
-{#snippet torrentRow(show: IndexerShow, unparsed = false)}
-  <div
-    class="min-w-0 overflow-hidden rounded-lg border p-2.5 {unparsed
-      ? 'border-amber-500/40 bg-card/50'
-      : 'border-border/40 bg-card/50'}"
-  >
-    <div class="mb-1.5 flex min-w-0 items-start justify-between gap-2">
-      <h3 class="min-w-0 flex-1 break-all text-xs font-semibold">{show.name}</h3>
-      <Button
-        onclick={() => handleDownload(show, unparsed)}
-        size="sm"
-        variant="ghost"
-        class="h-6 w-6 shrink-0 p-0"
-        disabled={downloading}
-      >
-        <Download class="h-3.5 w-3.5" />
-      </Button>
-    </div>
-    <div class="mb-2 flex flex-wrap gap-1.5">
-      <Badge variant="outline">{show.indexer_name}</Badge>
-      <Badge variant="secondary">{show.quality}</Badge>
-      {#if show.season > 0}
-        <Badge variant="outline">
-          {#if show.complete_season}
-            S{String(show.season).padStart(2, '0')} Complete
-          {:else}
-            S{String(show.season).padStart(2, '0')}E{String(show.episode).padStart(2, '0')}
-          {/if}
-        </Badge>
+{#snippet seasonBadge(show: IndexerShow)}
+  {#if show.season > 0}
+    <Badge variant="outline">
+      {#if show.complete_season}
+        S{String(show.season).padStart(2, '0')} Complete
+      {:else}
+        S{String(show.season).padStart(2, '0')}E{String(show.episode).padStart(2, '0')}
       {/if}
-      <Badge variant="outline">{show.category}</Badge>
-      {#if show.freeleech === 1}
-        <Badge variant="default" class="bg-green-600">Freeleech</Badge>
-      {/if}
-    </div>
-    <div class="flex flex-wrap gap-3 text-[0.65rem] text-muted-foreground">
-      <span class="inline-flex items-center gap-1"><HardDrive class="h-3 w-3" />{formatGbFixed(show.size)}</span>
-      <span class="inline-flex items-center gap-1 text-green-500"><ArrowDownToLine class="h-3 w-3" />{show.seeders}</span>
-      <span class="inline-flex items-center gap-1 text-amber-500"><Users class="h-3 w-3" />{show.leechers}</span>
-    </div>
-  </div>
+    </Badge>
+  {/if}
 {/snippet}
 
 <Dialog {open} {onOpenChange}>
@@ -189,34 +158,7 @@
       {/if}
 
       {#if availableQualities && availableQualities.length > 1}
-        <div class="mt-3">
-          <Button
-            onclick={() => (showQualityFilter = !showQualityFilter)}
-            size="sm"
-            variant="outline"
-            class="h-8 w-full text-xs"
-          >
-            <Filter class="mr-1 h-3 w-3" />
-            {selectedQuality ?? 'Filter by quality'}
-          </Button>
-          {#if showQualityFilter}
-            <div class="mt-2 grid grid-cols-2 gap-1.5">
-              {#each availableQualities as quality}
-                <Button
-                  onclick={() => {
-                    selectedQuality = quality;
-                    showQualityFilter = false;
-                  }}
-                  size="sm"
-                  variant={selectedQuality === quality ? 'default' : 'outline'}
-                  class="h-8 text-xs"
-                >
-                  {quality}
-                </Button>
-              {/each}
-            </div>
-          {/if}
-        </div>
+        <QualityFilter qualities={availableQualities} bind:selected={selectedQuality} />
       {/if}
 
       {#if hasIndividualEpisodes}
@@ -255,7 +197,20 @@
       {#if filteredShows().length > 0}
         <div class="space-y-2">
           {#each filteredShows() as show (`${show.indexer_name}:${show.id}:${show.download_link}`)}
-            {@render torrentRow(show)}
+            <TorrentRow
+              name={show.name}
+              indexerName={show.indexer_name}
+              quality={show.quality}
+              category={show.category}
+              freeleech={show.freeleech}
+              size={show.size}
+              seeders={show.seeders}
+              leechers={show.leechers}
+              {downloading}
+              onDownload={() => handleDownload(show)}
+            >
+              {#snippet extraBadges()}{@render seasonBadge(show)}{/snippet}
+            </TorrentRow>
           {/each}
         </div>
       {/if}
@@ -264,7 +219,21 @@
         <p class="my-3 text-center text-xs text-muted-foreground">Unparsed results</p>
         <div class="space-y-2">
           {#each unparsedShows as show (`${show.indexer_name}:${show.id}:${show.download_link}`)}
-            {@render torrentRow(show, true)}
+            <TorrentRow
+              name={show.name}
+              indexerName={show.indexer_name}
+              quality={show.quality}
+              category={show.category}
+              freeleech={show.freeleech}
+              size={show.size}
+              seeders={show.seeders}
+              leechers={show.leechers}
+              {downloading}
+              unparsed
+              onDownload={() => handleDownload(show, true)}
+            >
+              {#snippet extraBadges()}{@render seasonBadge(show)}{/snippet}
+            </TorrentRow>
           {/each}
         </div>
       {/if}
