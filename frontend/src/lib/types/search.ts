@@ -28,4 +28,6 @@ export type SearchResult = {
   score: number;
   movie?: SearchMoviePayload;
   show?: SearchShowPayload;
+  /** Whether this title already exists in the server library. */
+  available?: boolean;
 };

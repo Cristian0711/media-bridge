@@ -4,10 +4,13 @@ import { normalizePosterUrl } from '$lib/utils/poster-url';
 
 const POSTER_PLACEHOLDER = 'https://via.placeholder.com/56x80/1a1a2e/eee?text=No+Image';
 
-export function toMediaItem(result: SearchResult): { item: MediaItem; mediaType: MediaType } | null {
+export function toMediaItem(
+  result: SearchResult,
+): { item: MediaItem; mediaType: MediaType; available: boolean } | null {
   if (result.type === 'movie' && result.movie) {
     return {
       mediaType: 'movies',
+      available: result.available ?? false,
       item: {
         title: result.movie.title,
         year: result.movie.year,
@@ -20,6 +23,7 @@ export function toMediaItem(result: SearchResult): { item: MediaItem; mediaType:
   if (result.type === 'show' && result.show) {
     return {
       mediaType: 'shows',
+      available: result.available ?? false,
       item: {
         title: result.show.title,
         year: result.show.year,

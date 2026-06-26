@@ -25,6 +25,33 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// searchAvailabilityAdapter lets the search service flag library availability on
+// results without depending on the media domain directly.
+type searchAvailabilityAdapter struct {
+	svc media.Service
+}
+
+func (a searchAvailabilityAdapter) Available(ctx context.Context, queries []search.AvailabilityQuery) ([]bool, error) {
+	items := make([]media.AvailabilityItem, len(queries))
+	for i, q := range queries {
+		items[i] = media.AvailabilityItem{
+			Type:   q.Type,
+			IMDBID: q.IMDB,
+			TMDBID: q.TMDB,
+			TVDBID: q.TVDB,
+		}
+	}
+	results, err := a.svc.CheckAvailability(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]bool, len(results))
+	for i := range results {
+		out[i] = results[i].Available
+	}
+	return out, nil
+}
+
 func Bootstrap() (*Server, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -139,6 +166,7 @@ func Bootstrap() (*Server, error) {
 		BaseURL: cfg.TMDB.URL,
 		APIKey:  cfg.TMDB.APIKey,
 	})
+	searchSvc.SetAvailabilityChecker(searchAvailabilityAdapter{svc: mediaSvc})
 	search.NewBrowseWarmer(searchSvc).Start(ctx)
 
 	healthRepo := health.NewRepository(db)

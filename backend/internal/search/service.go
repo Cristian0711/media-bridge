@@ -30,10 +30,11 @@ type ExternalIDs struct {
 }
 
 type Service struct {
-	tmdb        *tmdbClient
-	log         *zap.Logger
-	logoCache   providerLogoCache
-	browseCache *browseCache
+	tmdb         *tmdbClient
+	log          *zap.Logger
+	logoCache    providerLogoCache
+	browseCache  *browseCache
+	availability AvailabilityChecker
 }
 
 func NewService(cfg TMDBConfig) *Service {

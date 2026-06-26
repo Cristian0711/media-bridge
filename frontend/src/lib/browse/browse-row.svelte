@@ -2,7 +2,6 @@
   import { Button } from '$lib/components/ui/button';
   import { Download, Search, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl, toMediaItem } from '$lib/search/map';
-  import { availabilityItem, getAvailability, requestAvailability } from '$lib/media/availability';
   import type { MediaRow } from '$lib/media/media-action-host.svelte';
   import type { SearchResult } from '$lib/types/search';
 
@@ -20,10 +19,6 @@
   const rows = $derived(
     results.map(toMediaItem).filter((r): r is NonNullable<typeof r> => r !== null),
   );
-
-  $effect(() => {
-    for (const row of rows) requestAvailability(availabilityItem(row.item, row.mediaType));
-  });
 </script>
 
 <section class="mb-6">
@@ -38,7 +33,7 @@
   {:else}
     <div class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {#each rows as row, i (`${row.mediaType}-${row.item.ids.tmdb ?? i}`)}
-        {@const available = getAvailability(availabilityItem(row.item, row.mediaType))?.available ?? false}
+        {@const available = row.available}
         <article class="w-[7.5rem] shrink-0">
           <div class="flex h-[19rem] flex-col overflow-hidden rounded-lg border border-border/40 bg-card">
             <div class="relative h-[11.25rem] w-full shrink-0 overflow-hidden bg-muted">

@@ -58,9 +58,12 @@ type ShowImages struct {
 }
 
 // Result is a combined movie or show hit with score, type, and poster images.
+// Available reports whether the title already exists in the server library;
+// it is filled in at the response boundary, not stored in the browse cache.
 type Result struct {
-	Type  string  `json:"type"`
-	Score float64 `json:"score"`
-	Movie *Movie  `json:"movie,omitempty"`
-	Show  *Show   `json:"show,omitempty"`
+	Type      string  `json:"type"`
+	Score     float64 `json:"score"`
+	Movie     *Movie  `json:"movie,omitempty"`
+	Show      *Show   `json:"show,omitempty"`
+	Available bool    `json:"available"`
 }

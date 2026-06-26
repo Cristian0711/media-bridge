@@ -28,7 +28,7 @@ func (h *Handler) Search(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search"})
 		return
 	}
-	results := pageResult.Results
+	results := h.svc.annotateResults(c.Request.Context(), pageResult.Results)
 	if results == nil {
 		results = []Result{}
 	}
@@ -100,6 +100,7 @@ func (h *Handler) BrowseServiceCatalog(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	catalog = h.svc.annotateCatalog(c.Request.Context(), catalog)
 	if catalog.Lists == nil {
 		catalog.Lists = []BrowseListRow{}
 	}
@@ -116,6 +117,7 @@ func (h *Handler) BrowseGlobalCatalog(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load global browse"})
 		return
 	}
+	catalog = h.svc.annotateCatalog(c.Request.Context(), catalog)
 	if catalog.Lists == nil {
 		catalog.Lists = []BrowseListRow{}
 	}
@@ -131,7 +133,7 @@ func (h *Handler) BrowseList(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	results := pageResult.Results
+	results := h.svc.annotateResults(c.Request.Context(), pageResult.Results)
 	if results == nil {
 		results = []Result{}
 	}
