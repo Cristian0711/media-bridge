@@ -133,7 +133,14 @@ func (s *service) ValidateToken(ctx context.Context, token string) (*ValidateRes
 	if role == "" {
 		user, err := s.userSvc.FindByID(ctx, claims.UserID)
 		if err != nil {
-			return &ValidateResponse{Valid: false}, nil
+			// A missing user means the token is genuinely invalid; any other
+			// error is an infrastructure failure (e.g. DB blip) and must not be
+			// reported as "invalid" — surface it so the handler returns 500
+			// rather than spuriously rejecting a valid token.
+			if errors.Is(err, users.ErrNotFound) {
+				return &ValidateResponse{Valid: false}, nil
+			}
+			return nil, err
 		}
 		role = user.Role
 	}

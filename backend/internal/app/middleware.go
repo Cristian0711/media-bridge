@@ -8,7 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-func authMiddleware() gin.HandlerFunc {
+// proxyAuthMiddleware does NOT authenticate — it trusts the X-User-ID /
+// X-Username / X-User-Role headers injected by the nginx auth layer, which
+// validates the JWT and overwrites these headers on every request. This is only
+// safe because the backend is never exposed directly; nginx unconditionally
+// sets (and thereby strips any client-supplied) X-User-* headers. If the
+// backend ever becomes directly reachable, real in-process JWT validation must
+// replace this.
+func proxyAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {

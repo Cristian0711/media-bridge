@@ -5,7 +5,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 )
+
+// defaultQBittorrentPassword is the placeholder used when QBITTORRENT_PASSWORD
+// is unset. Shipping it as a working default is a misconfiguration, so its use
+// is warned about loudly at startup.
+const defaultQBittorrentPassword = "changeme"
 
 type AppConfig struct {
 	Port        string
@@ -69,7 +76,7 @@ func Load() (*AppConfig, error) {
 		QBittorrent: QBittorrentConfig{
 			URL:      get("QBITTORRENT_URL", "http://192.168.0.65:8090"),
 			Username: get("QBITTORRENT_USERNAME", "admin"),
-			Password: get("QBITTORRENT_PASSWORD", "changeme"),
+			Password: get("QBITTORRENT_PASSWORD", defaultQBittorrentPassword),
 		},
 		Indexer: IndexerConfig{
 			Prowlarr: ProwlarrConfig{
@@ -92,6 +99,17 @@ func Load() (*AppConfig, error) {
 	}
 	if cfg.TMDB.APIKey == "" {
 		return nil, fmt.Errorf("required env var not set: TMDB_API_KEY")
+	}
+
+	if cfg.QBittorrent.Password == defaultQBittorrentPassword {
+		logger.Named("config").Warn(
+			"QBITTORRENT_PASSWORD is unset; using the insecure built-in default — set it in the environment",
+		)
+	}
+	if cfg.Indexer.Prowlarr.Enabled && cfg.Indexer.Prowlarr.APIKey == "" {
+		logger.Named("config").Warn(
+			"Prowlarr is enabled but PROWLARR_API_KEY is empty; indexer requests will be unauthenticated",
+		)
 	}
 	return cfg, nil
 }

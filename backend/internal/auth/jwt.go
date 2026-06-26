@@ -43,7 +43,7 @@ func (m *JWTManager) Parse(tokenStr string) (*Claims, error) {
 			return nil, errors.New("unexpected signing method")
 		}
 		return m.secret, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil {
 		return nil, err
 	}

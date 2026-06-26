@@ -43,10 +43,33 @@ func (h *Handler) GetMe(c *gin.Context) {
 	})
 }
 
+// canReadUser reports whether the caller (identified by the proxy-trusted
+// context values) may read the user record with targetID: admins may read any,
+// other users only their own.
+func canReadUser(c *gin.Context, targetID uint) bool {
+	if role, ok := c.Get("user_role"); ok {
+		if r, ok := role.(string); ok && IsAdmin(r) {
+			return true
+		}
+	}
+	if v, ok := c.Get("user_id"); ok {
+		if id, ok := v.(uint); ok && id == targetID {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) GetUser(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+	// Only the user themselves or an admin may read a user record (avoid an
+	// unrestricted IDOR-style read of any account by id).
+	if !canReadUser(c, uint(id)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
 	user, err := h.svc.FindByID(c.Request.Context(), uint(id))

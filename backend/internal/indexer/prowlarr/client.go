@@ -106,12 +106,19 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) (strin
 		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("prowlarr download failed with status %d", resp.StatusCode)
+	}
+	// .torrent files are tiny; cap the read so a misbehaving or malicious
+	// indexer proxy cannot stream an unbounded body and OOM the process. Read
+	// one extra byte so we can detect (rather than silently truncate) overflow.
+	const maxTorrentSize = 10 << 20 // 10 MiB
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentSize+1))
 	if err != nil {
 		return "", err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("prowlarr download failed with status %d", resp.StatusCode)
+	if len(data) > maxTorrentSize {
+		return "", fmt.Errorf("prowlarr download exceeds %d bytes", maxTorrentSize)
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
 }

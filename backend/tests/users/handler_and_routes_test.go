@@ -41,13 +41,17 @@ func TestGetUserHandlerStatusCodes(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
+		callerID   uint // 0 = no auth context set
+		callerRole string
 		svcErr     error
 		wantStatus int
 	}{
-		{"bad id", "/api/v1/users/nope", nil, http.StatusBadRequest},
-		{"not found", "/api/v1/users/1", users.ErrNotFound, http.StatusNotFound},
-		{"unexpected", "/api/v1/users/1", errors.New("boom"), http.StatusInternalServerError},
-		{"ok", "/api/v1/users/1", nil, http.StatusOK},
+		{"bad id", "/api/v1/users/nope", 1, "", nil, http.StatusBadRequest},
+		{"forbidden other user", "/api/v1/users/1", 2, "", nil, http.StatusForbidden},
+		{"not found", "/api/v1/users/1", 1, "", users.ErrNotFound, http.StatusNotFound},
+		{"unexpected", "/api/v1/users/1", 1, "", errors.New("boom"), http.StatusInternalServerError},
+		{"ok self", "/api/v1/users/1", 1, "", nil, http.StatusOK},
+		{"ok admin", "/api/v1/users/1", 99, users.RoleAdmin, nil, http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -64,9 +68,12 @@ func TestGetUserHandlerStatusCodes(t *testing.T) {
 			})
 			r := gin.New()
 			g := r.Group("/api/v1")
-			if tt.name == "ok" {
+			if tt.callerID != 0 {
 				g.Use(func(c *gin.Context) {
-					c.Set("user_id", uint(1))
+					c.Set("user_id", tt.callerID)
+					if tt.callerRole != "" {
+						c.Set("user_role", tt.callerRole)
+					}
 					c.Next()
 				})
 			}
