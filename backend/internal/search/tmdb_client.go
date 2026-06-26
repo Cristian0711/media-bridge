@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"time"
 
+	"log/slog"
+
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -24,7 +26,7 @@ type tmdbClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
-	log        *zap.Logger
+	log        *slog.Logger
 }
 
 func newTMDBClient(cfg TMDBConfig) *tmdbClient {
@@ -43,10 +45,12 @@ func newTMDBClient(cfg TMDBConfig) *tmdbClient {
 		baseURL: base,
 		apiKey:  cfg.APIKey,
 		httpClient: &http.Client{
-			Timeout:   12 * time.Second,
-			Transport: transport,
+			Timeout: 12 * time.Second,
+			// otelhttp makes each outbound call a child span (status + latency)
+			// and propagates the trace context downstream.
+			Transport: otelhttp.NewTransport(transport),
 		},
-		log: logger.Named("search.tmdb"),
+		log: logger.Component("search.tmdb"),
 	}
 }
 
@@ -126,17 +130,20 @@ func (c *tmdbClient) get(ctx context.Context, path string, dest any) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.log.Error("tmdb request failed", zap.String("url", u), zap.Error(err))
+		// Detail only: the error is returned to the caller, which logs the
+		// outcome at the level it warrants (a transient external failure is not
+		// itself an ERROR to review).
+		c.log.DebugContext(ctx, "tmdb request failed", "url", u, logger.Err(err))
 		return fmt.Errorf("tmdb request %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		c.log.Error("tmdb API error",
-			zap.String("url", u),
-			zap.Int("status", resp.StatusCode),
-			zap.String("body", string(body)),
+		c.log.DebugContext(ctx, "tmdb API error",
+			"url", u,
+			"status", resp.StatusCode,
+			"body", string(body),
 		)
 		return fmt.Errorf("tmdb API error: %s", resp.Status)
 	}

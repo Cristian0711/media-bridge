@@ -32,6 +32,10 @@ type Job[T any] struct {
 
 	WorkerID *string
 	Error    *string
+
+	// Traceparent is the W3C trace context captured at enqueue time. The worker
+	// uses it to link the job's span back to the request/job that produced it.
+	Traceparent string
 }
 
 // scanJob reads a single row returned by a Dequeue UPDATE ... RETURNING.
@@ -41,6 +45,7 @@ func scanJob[T any](row pgx.Row) (*Job[T], error) {
 		j               Job[T]
 		rawPayload      []byte
 		retryAfterMicro int64
+		traceparent     *string
 	)
 
 	err := row.Scan(
@@ -58,6 +63,7 @@ func scanJob[T any](row pgx.Row) (*Job[T], error) {
 		&j.CompletedAt,
 		&j.WorkerID,
 		&j.Error,
+		&traceparent,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -67,6 +73,9 @@ func scanJob[T any](row pgx.Row) (*Job[T], error) {
 	}
 
 	j.RetryAfter = time.Duration(retryAfterMicro) * time.Microsecond
+	if traceparent != nil {
+		j.Traceparent = *traceparent
+	}
 
 	if err := json.Unmarshal(rawPayload, &j.Payload); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)

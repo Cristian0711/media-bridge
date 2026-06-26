@@ -13,11 +13,11 @@ package ssehub
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -88,7 +88,7 @@ func New(name string) *Hub {
 }
 
 func (h *Hub) run() {
-	log := logger.Named(h.name)
+	log := logger.Component(h.name)
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
 
@@ -99,7 +99,7 @@ func (h *Hub) run() {
 			h.clients[client.ID] = client
 			n := len(h.clients)
 			h.clientsMux.Unlock()
-			log.Info("sse client connected", zap.String("client_id", client.ID), zap.Int("clients", n))
+			log.Info("sse client connected", "client_id", client.ID, "clients", n)
 
 		case clientID := <-h.removeClient:
 			h.clientsMux.Lock()
@@ -111,7 +111,7 @@ func (h *Hub) run() {
 			n := len(h.clients)
 			h.clientsMux.Unlock()
 			if ok {
-				log.Info("sse client disconnected", zap.String("client_id", clientID), zap.Int("clients", n))
+				log.Info("sse client disconnected", "client_id", clientID, "clients", n)
 			}
 
 		case message := <-h.broadcast:
@@ -134,7 +134,7 @@ func (h *Hub) run() {
 
 // fanOut delivers message to every client without blocking. warnOnFull logs a
 // dropped frame (suppressed for heartbeats, which are intentionally lossy).
-func (h *Hub) fanOut(log *zap.Logger, message string, warnOnFull bool) {
+func (h *Hub) fanOut(log *slog.Logger, message string, warnOnFull bool) {
 	if message == "" {
 		return
 	}
@@ -145,7 +145,7 @@ func (h *Hub) fanOut(log *zap.Logger, message string, warnOnFull bool) {
 		case client.Messages <- message:
 		default:
 			if warnOnFull {
-				log.Warn("sse client queue full, dropping frame", zap.String("client_id", client.ID))
+				log.Warn("sse client queue full, dropping frame", "client_id", client.ID)
 			}
 		}
 	}
@@ -189,7 +189,7 @@ func (h *Hub) Publish(frame string) {
 	select {
 	case h.broadcast <- frame:
 	default:
-		logger.Named(h.name).Warn("broadcast channel full, dropping frame")
+		logger.Component(h.name).Warn("broadcast channel full, dropping frame")
 	}
 }
 

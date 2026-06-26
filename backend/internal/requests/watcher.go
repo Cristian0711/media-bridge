@@ -2,13 +2,13 @@ package requests
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/hardlink"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 // DownloadCompletionWatcher polls in-flight download requests and marks them
@@ -42,20 +42,20 @@ func NewDownloadCompletionWatcher(
 }
 
 func (w *DownloadCompletionWatcher) Start(ctx context.Context) {
-	go w.run(ctx)
+	go w.run(logger.WithSystem(ctx, "requests.download_watcher"))
 }
 
 func (w *DownloadCompletionWatcher) run(ctx context.Context) {
-	log := logger.Named("requests.download_watcher")
+	log := logger.Component("requests.download_watcher")
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Info("download completion watcher started", zap.Duration("interval", w.interval))
+	log.InfoContext(ctx, "download completion watcher started", "interval", w.interval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("download completion watcher stopped")
+			log.InfoContext(ctx, "download completion watcher stopped")
 			return
 		case <-ticker.C:
 			w.tick(ctx, log)
@@ -63,7 +63,7 @@ func (w *DownloadCompletionWatcher) run(ctx context.Context) {
 	}
 }
 
-func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
+func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *slog.Logger) {
 	w.tickMu.Lock()
 	if w.tickBusy {
 		w.tickMu.Unlock()
@@ -80,7 +80,7 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 
 	rows, err := w.repo.ListDownloading(ctx)
 	if err != nil {
-		log.Warn("list downloading requests failed", zap.Error(err))
+		log.WarnContext(ctx, "list downloading requests failed", logger.Err(err))
 		return
 	}
 	if len(rows) == 0 {
@@ -89,7 +89,7 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 
 	torrentByHash, err := w.qbitSvc.TorrentsByHash(ctx)
 	if err != nil {
-		log.Warn("list qbittorrent torrents failed", zap.Error(err))
+		log.WarnContext(ctx, "list qbittorrent torrents failed", logger.Err(err))
 		return
 	}
 
@@ -109,10 +109,10 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 
 		progress, err := w.hardlinkSvc.Progress(ctx, req.MediaID)
 		if err != nil {
-			log.Debug("hardlink progress check failed",
-				zap.Uint("request_entry_id", req.ID),
-				zap.Uint("media_id", req.MediaID),
-				zap.Error(err),
+			log.DebugContext(ctx, "hardlink progress check failed",
+				"request_entry_id", req.ID,
+				"media_id", req.MediaID,
+				logger.Err(err),
 			)
 			continue
 		}
@@ -146,7 +146,7 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 
 	filesComplete, err := w.qbitSvc.FilesCompleteByHash(ctx, needFileCheck, nil)
 	if err != nil {
-		log.Warn("batch torrent file completion check failed", zap.Error(err))
+		log.WarnContext(ctx, "batch torrent file completion check failed", logger.Err(err))
 		return
 	}
 
@@ -155,10 +155,10 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 			continue
 		}
 		if err := w.finalizeDownloaded(ctx, log, c.req, c.hash); err != nil {
-			log.Debug("download finalize check failed",
-				zap.Uint("request_entry_id", c.req.ID),
-				zap.Uint("media_id", c.req.MediaID),
-				zap.Error(err),
+			log.DebugContext(ctx, "download finalize check failed",
+				"request_entry_id", c.req.ID,
+				"media_id", c.req.MediaID,
+				logger.Err(err),
 			)
 		}
 	}
@@ -172,34 +172,34 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 // status guard) prevents resurrecting a download that is being removed (H1).
 func (w *DownloadCompletionWatcher) finalizeIfStillLinked(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	req *Request,
 	hash string,
 ) {
 	progress, err := w.hardlinkSvc.Progress(ctx, req.MediaID)
 	if err != nil {
-		log.Debug("re-verify hardlinks before finalize failed",
-			zap.Uint("request_entry_id", req.ID),
-			zap.Uint("media_id", req.MediaID),
-			zap.Error(err),
+		log.DebugContext(ctx, "re-verify hardlinks before finalize failed",
+			"request_entry_id", req.ID,
+			"media_id", req.MediaID,
+			logger.Err(err),
 		)
 		return
 	}
 	if progress.Total == 0 || !progress.Complete {
-		log.Debug("skip finalize: hardlinks no longer complete",
-			zap.Uint("request_entry_id", req.ID),
-			zap.Uint("media_id", req.MediaID),
+		log.DebugContext(ctx, "skip finalize: hardlinks no longer complete",
+			"request_entry_id", req.ID,
+			"media_id", req.MediaID,
 		)
 		return
 	}
 	if err := w.finalizeDownloaded(ctx, log, req, hash); err != nil {
-		log.Debug("download finalize failed", zap.Uint("request_entry_id", req.ID), zap.Error(err))
+		log.DebugContext(ctx, "download finalize failed", "request_entry_id", req.ID, logger.Err(err))
 	}
 }
 
 func (w *DownloadCompletionWatcher) finalizeDownloaded(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	req *Request,
 	torrentHash string,
 ) error {
@@ -208,16 +208,16 @@ func (w *DownloadCompletionWatcher) finalizeDownloaded(
 		return err
 	}
 	if !updated {
-		log.Debug("skip finalize: request no longer downloading",
-			zap.Uint("request_entry_id", req.ID),
-			zap.Uint("media_id", req.MediaID),
+		log.DebugContext(ctx, "skip finalize: request no longer downloading",
+			"request_entry_id", req.ID,
+			"media_id", req.MediaID,
 		)
 		return nil
 	}
-	log.Info("download request finalized",
-		zap.Uint("request_entry_id", req.ID),
-		zap.Uint("media_id", req.MediaID),
-		zap.String("torrent_hash", torrentHash),
+	log.InfoContext(ctx, "download request finalized",
+		"request_entry_id", req.ID,
+		"media_id", req.MediaID,
+		"torrent_hash", torrentHash,
 	)
 	return nil
 }

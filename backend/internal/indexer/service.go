@@ -3,13 +3,13 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 // CatalogLister optionally lists indexers configured in Prowlarr (child indexers).
@@ -28,7 +28,7 @@ type Service struct {
 	indexers map[string]Provider
 	catalog  CatalogLister
 	mu       sync.RWMutex
-	log      *zap.Logger
+	log      *slog.Logger
 }
 
 type MovieSearchResponse struct {
@@ -50,7 +50,7 @@ type ShowSearchResponse struct {
 func NewService() *Service {
 	return &Service{
 		indexers: make(map[string]Provider),
-		log:      logger.Named("indexer.service"),
+		log:      logger.Component("indexer.service"),
 	}
 }
 
@@ -91,7 +91,7 @@ func (s *Service) ListIndexerCatalog(ctx context.Context) []CatalogEntry {
 			return entries
 		}
 		if err != nil {
-			s.log.Warn("indexer catalog list failed", zap.Error(err))
+			s.log.WarnContext(ctx, "indexer catalog list failed", logger.Err(err))
 		}
 	}
 
@@ -107,10 +107,10 @@ func (s *Service) ListIndexerCatalog(ctx context.Context) []CatalogEntry {
 }
 
 func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSearchResponse, error) {
-	s.log.Info("movie search started",
-		zap.String("imdb_id", req.ImdbID),
-		zap.String("quality", req.Quality),
-		zap.Strings("indexers", req.Indexers))
+	s.log.InfoContext(ctx, "movie search started",
+		"imdb_id", req.ImdbID,
+		"quality", req.Quality,
+		"indexers", req.Indexers)
 	items := s.searchAcrossIndexers(ctx, req, true)
 	movies := processMovieItems(ctx, items)
 	movies = filterAndSortMovies(movies, req.Quality)
@@ -125,20 +125,20 @@ func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSea
 		qualities = append(qualities, q)
 	}
 	sort.Strings(qualities)
-	s.log.Info("movie search completed",
-		zap.Int("raw_items", len(items)),
-		zap.Int("results", len(movies)),
-		zap.Any("by_indexer", byIndexer))
+	s.log.InfoContext(ctx, "movie search completed",
+		"raw_items", len(items),
+		"results", len(movies),
+		"by_indexer", byIndexer)
 	return MovieSearchResponse{Movies: movies, Total: len(movies), ByIndexer: byIndexer, AvailableQualities: qualities}, nil
 }
 
 func (s *Service) SearchShows(ctx context.Context, req SearchRequest) (ShowSearchResponse, error) {
-	s.log.Info("show search started",
-		zap.String("imdb_id", req.ImdbID),
-		zap.Int("season", req.Season),
-		zap.Int("episode", req.Episode),
-		zap.String("quality", req.Quality),
-		zap.Strings("indexers", req.Indexers))
+	s.log.InfoContext(ctx, "show search started",
+		"imdb_id", req.ImdbID,
+		"season", req.Season,
+		"episode", req.Episode,
+		"quality", req.Quality,
+		"indexers", req.Indexers)
 	items := s.searchAcrossIndexers(ctx, req, false)
 	shows := processShowItems(ctx, items)
 	parsed, unparsed := filterAndSortShows(shows, req.Season, req.Episode, req.Quality)
@@ -163,11 +163,11 @@ func (s *Service) SearchShows(ctx context.Context, req SearchRequest) (ShowSearc
 	}
 	sort.Strings(qualities)
 	sort.Ints(seasons)
-	s.log.Info("show search completed",
-		zap.Int("raw_items", len(items)),
-		zap.Int("parsed_results", len(parsed)),
-		zap.Int("unparsed_results", len(unparsed)),
-		zap.Any("by_indexer", byIndexer))
+	s.log.InfoContext(ctx, "show search completed",
+		"raw_items", len(items),
+		"parsed_results", len(parsed),
+		"unparsed_results", len(unparsed),
+		"by_indexer", byIndexer)
 	return ShowSearchResponse{Shows: parsed, Unparsed: unparsed, Total: len(all), ByIndexer: byIndexer, AvailableQualities: qualities, AvailableSeasons: seasons}, nil
 }
 
@@ -220,10 +220,10 @@ func (s *Service) searchAcrossIndexers(ctx context.Context, req SearchRequest, m
 	if movie {
 		searchType = "movies"
 	}
-	s.log.Info("dispatching indexer search",
-		zap.String("type", searchType),
-		zap.Int("requested_indexers", len(req.Indexers)),
-		zap.Int("selected_indexers", len(indexersToSearch)))
+	s.log.InfoContext(ctx, "dispatching indexer search",
+		"type", searchType,
+		"requested_indexers", len(req.Indexers),
+		"selected_indexers", len(indexersToSearch))
 	var wg sync.WaitGroup
 	results := make(chan []IndexerItem, len(indexersToSearch))
 	for _, p := range indexersToSearch {
@@ -233,7 +233,7 @@ func (s *Service) searchAcrossIndexers(ctx context.Context, req SearchRequest, m
 		wg.Add(1)
 		go func(provider Provider) {
 			defer wg.Done()
-			s.log.Debug("indexer search start", zap.String("indexer", provider.GetID()), zap.String("type", searchType))
+			s.log.DebugContext(ctx, "indexer search start", "indexer", provider.GetID(), "type", searchType)
 			var out []IndexerItem
 			var err error
 			if movie {
@@ -242,13 +242,13 @@ func (s *Service) searchAcrossIndexers(ctx context.Context, req SearchRequest, m
 				out, err = provider.SearchShows(ctx, req)
 			}
 			if err != nil {
-				s.log.Warn("indexer search failed", zap.String("indexer", provider.GetID()), zap.Error(err))
+				s.log.WarnContext(ctx, "indexer search failed", "indexer", provider.GetID(), logger.Err(err))
 				return
 			}
-			s.log.Info("indexer search completed",
-				zap.String("indexer", provider.GetID()),
-				zap.String("type", searchType),
-				zap.Int("results", len(out)))
+			s.log.InfoContext(ctx, "indexer search completed",
+				"indexer", provider.GetID(),
+				"type", searchType,
+				"results", len(out))
 			results <- out
 		}(p)
 	}
@@ -261,7 +261,7 @@ func (s *Service) searchAcrossIndexers(ctx context.Context, req SearchRequest, m
 		all = append(all, r...)
 	}
 	if len(all) == 0 {
-		s.log.Warn("no results from any indexer", zap.String("type", searchType), zap.String("imdb_id", req.ImdbID))
+		s.log.WarnContext(ctx, "no results from any indexer", "type", searchType, "imdb_id", req.ImdbID)
 	}
 	return all
 }

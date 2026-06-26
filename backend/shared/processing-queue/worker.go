@@ -9,7 +9,40 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// startJobSpan starts a span for processing one job. The job runs in its own
+// trace (it is dequeued long after the producer returned), with a LINK back to
+// the span that enqueued it — so the producer's request and this job are
+// connected without a multi-hour parent-child span. The producer's trace id is
+// also recorded as an attribute for quick correlation.
+func (q *Queue[T]) startJobSpan(ctx context.Context, job *Job[T]) (context.Context, trace.Span) {
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(
+			attribute.String("queue.name", q.name),
+			attribute.String("job.id", job.ID.String()),
+			attribute.Int("job.attempts", job.Attempts),
+		),
+	}
+	if job.Traceparent != "" {
+		producerCtx := otel.GetTextMapPropagator().Extract(
+			context.Background(),
+			propagation.MapCarrier{"traceparent": job.Traceparent},
+		)
+		if sc := trace.SpanContextFromContext(producerCtx); sc.IsValid() {
+			opts = append(opts,
+				trace.WithLinks(trace.Link{SpanContext: sc}),
+				trace.WithAttributes(attribute.String("enqueue.trace_id", sc.TraceID().String())),
+			)
+		}
+	}
+	return otel.Tracer("processing-queue").Start(ctx, "queue.process "+q.name, opts...)
+}
 
 // HandlerFunc is the function you provide to process a job.
 // Return nil to mark the job completed; return an error to fail it (and
@@ -85,9 +118,18 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 		// forever while the DB-side recovery loop requeues the row underneath
 		// it. Handlers must honour ctx for this to take effect.
 		handlerCtx, cancelHandler := context.WithTimeout(ctx, q.opts.WorkerTimeout)
+		// Start a span for this job, linked back to the request/job that enqueued
+		// it. The job runs in its own trace (it may be minutes/hours after the
+		// producer returned), and the link ties the two together.
+		handlerCtx, span := q.startJobSpan(handlerCtx, job)
 		stopHeartbeat := q.startLeaseHeartbeat(handlerCtx, job.ID)
 		err = q.invokeHandler(handlerCtx, handler, job)
 		stopHeartbeat()
+		if err != nil && !errors.Is(err, ErrDeferRetry) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
 		cancelHandler()
 
 		// Record the terminal job state on a context detached from the worker

@@ -2,11 +2,11 @@ package search
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -25,9 +25,10 @@ func NewBrowseWarmer(svc *Service) *BrowseWarmer {
 
 // Start runs an immediate warm-up, then refreshes on browseWarmInterval.
 func (w *BrowseWarmer) Start(ctx context.Context) {
+	ctx = logger.WithSystem(ctx, "search.browse_warmer")
 	go func() {
-		log := logger.Named("search.browse_warmer")
-		log.Info("browse cache warmer started", zap.Duration("interval", browseWarmInterval))
+		log := logger.Component("search.browse_warmer")
+		log.InfoContext(ctx, "browse cache warmer started", "interval", browseWarmInterval)
 
 		w.run(ctx, log)
 
@@ -37,7 +38,7 @@ func (w *BrowseWarmer) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info("browse cache warmer stopped")
+				log.InfoContext(ctx, "browse cache warmer stopped")
 				return
 			case <-ticker.C:
 				w.run(ctx, log)
@@ -46,11 +47,11 @@ func (w *BrowseWarmer) Start(ctx context.Context) {
 	}()
 }
 
-func (w *BrowseWarmer) run(ctx context.Context, log *zap.Logger) {
+func (w *BrowseWarmer) run(ctx context.Context, log *slog.Logger) {
 	start := time.Now()
 
 	if _, err := w.svc.warmBrowseServices(ctx); err != nil {
-		log.Warn("browse warm: services failed", zap.Error(err))
+		log.WarnContext(ctx, "browse warm: services failed", logger.Err(err))
 	}
 
 	tasks := 1 + len(browseServices)
@@ -69,7 +70,7 @@ func (w *BrowseWarmer) run(ctx context.Context, log *zap.Logger) {
 				countMu.Lock()
 				failCount++
 				countMu.Unlock()
-				log.Warn("browse warm: catalog failed", zap.String("scope", label), zap.Error(err))
+				log.WarnContext(ctx, "browse warm: catalog failed", "scope", label, logger.Err(err))
 				return
 			}
 			countMu.Lock()
@@ -85,10 +86,10 @@ func (w *BrowseWarmer) run(ctx context.Context, log *zap.Logger) {
 	}
 
 	wg.Wait()
-	log.Info("browse cache warm completed",
-		zap.Int("catalogs_ok", okCount),
-		zap.Int("catalogs_failed", failCount),
-		zap.Int("catalogs_total", tasks),
-		zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+	log.InfoContext(ctx, "browse cache warm completed",
+		"catalogs_ok", okCount,
+		"catalogs_failed", failCount,
+		"catalogs_total", tasks,
+		"duration_ms", time.Since(start).Milliseconds(),
 	)
 }

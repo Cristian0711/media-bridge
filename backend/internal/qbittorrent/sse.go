@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	"github.com/Cristian0711/media-bridge/backend/shared/ssehub"
 )
 
@@ -111,6 +112,7 @@ func StartTorrentMonitor(ctx context.Context, svc Service, broker *Broker, inter
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
+	ctx = logger.WithSystem(ctx, "qbittorrent.torrent_monitor")
 
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -124,6 +126,9 @@ func StartTorrentMonitor(ctx context.Context, svc Service, broker *Broker, inter
 			case <-ticker.C:
 				torrents, err := svc.ListTorrents(ctx)
 				if err != nil {
+					// Transient poll failure (qBittorrent briefly unreachable):
+					// expected, so log at debug rather than dropping it silently.
+					logger.Debug(ctx, "torrent monitor: list failed", logger.Err(err))
 					continue
 				}
 

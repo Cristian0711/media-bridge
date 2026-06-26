@@ -11,6 +11,7 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
 	"github.com/Cristian0711/media-bridge/backend/internal/users"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 func newRouter(
@@ -25,6 +26,10 @@ func newRouter(
 	healthH *health.Handler) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
+	// otelgin is outermost so a span exists for the whole request; it continues
+	// the trace started at nginx (via the W3C traceparent header) when present.
+	r.Use(otelgin.Middleware("media-bridge-backend"))
+	r.Use(contextMiddleware())
 	r.Use(requestLoggerMiddleware())
 
 	api := r.Group("/api/v1")

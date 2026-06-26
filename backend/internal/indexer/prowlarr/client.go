@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Config struct {
@@ -25,7 +26,7 @@ type Client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
-	log        *zap.Logger
+	log        *slog.Logger
 }
 
 func NewClient(cfg Config) *Client {
@@ -34,9 +35,10 @@ func NewClient(cfg Config) *Client {
 		baseURL: base,
 		apiKey:  strings.TrimSpace(cfg.APIKey),
 		httpClient: &http.Client{
-			Timeout: 90 * time.Second,
+			Timeout:   90 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		},
-		log: logger.Named("indexer.prowlarr"),
+		log: logger.Component("indexer.prowlarr"),
 	}
 }
 
@@ -65,16 +67,16 @@ func (c *Client) Search(ctx context.Context, query, searchType string, indexerID
 	}
 
 	u := c.baseURL + "/api/v1/search?" + params.Encode()
-	c.log.Info("prowlarr search",
-		zap.String("type", searchType),
-		zap.String("query", query),
-		zap.Int("indexer_filter_count", len(indexerIDs)))
+	c.log.InfoContext(ctx, "prowlarr search",
+		"type", searchType,
+		"query", query,
+		"indexer_filter_count", len(indexerIDs))
 
 	var releases []Release
 	if err := c.getJSON(ctx, u, &releases); err != nil {
 		return nil, err
 	}
-	c.log.Info("prowlarr search complete", zap.Int("results", len(releases)))
+	c.log.InfoContext(ctx, "prowlarr search complete", "results", len(releases))
 	return releases, nil
 }
 

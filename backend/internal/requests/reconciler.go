@@ -2,12 +2,12 @@ package requests
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/download"
 	"github.com/Cristian0711/media-bridge/backend/internal/remove"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -44,14 +44,14 @@ func NewReconciler(
 }
 
 func (r *Reconciler) Start(ctx context.Context) {
-	go r.run(ctx)
+	go r.run(logger.WithSystem(ctx, "requests.reconciler"))
 }
 
 func (r *Reconciler) run(ctx context.Context) {
-	log := logger.Named("requests.reconciler")
-	log.Info("request reconciler started",
-		zap.Duration("interval", reconcilerInterval),
-		zap.Duration("min_age", reconcilerMinAge),
+	log := logger.Component("requests.reconciler")
+	log.InfoContext(ctx, "request reconciler started",
+		"interval", reconcilerInterval,
+		"min_age", reconcilerMinAge,
 	)
 	r.tick(ctx, log)
 	ticker := time.NewTicker(reconcilerInterval)
@@ -59,7 +59,7 @@ func (r *Reconciler) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("request reconciler stopped")
+			log.InfoContext(ctx, "request reconciler stopped")
 			return
 		case <-ticker.C:
 			r.tick(ctx, log)
@@ -67,24 +67,24 @@ func (r *Reconciler) run(ctx context.Context) {
 	}
 }
 
-func (r *Reconciler) tick(ctx context.Context, log *zap.Logger) {
+func (r *Reconciler) tick(ctx context.Context, log *slog.Logger) {
 	r.reconcilePending(ctx, log)
 	r.reconcileQueued(ctx, log)
 	r.reconcileRemoving(ctx, log)
 	r.purge(ctx, log)
 }
 
-func (r *Reconciler) reconcilePending(ctx context.Context, log *zap.Logger) {
+func (r *Reconciler) reconcilePending(ctx context.Context, log *slog.Logger) {
 	rows, err := r.repo.ListOrphanedPending(ctx, reconcilerMinAge)
 	if err != nil {
-		log.Warn("list orphaned pending requests failed", zap.Error(err))
+		log.WarnContext(ctx, "list orphaned pending requests failed", logger.Err(err))
 		return
 	}
 	for i := range rows {
 		req := &rows[i]
 		hasJob, err := r.requestsQueue.HasJobForRequest(ctx, req.ID)
 		if err != nil {
-			log.Warn("check requests queue job failed", zap.Uint("request_entry_id", req.ID), zap.Error(err))
+			log.WarnContext(ctx, "check requests queue job failed", "request_entry_id", req.ID, logger.Err(err))
 			continue
 		}
 		if hasJob {
@@ -97,20 +97,20 @@ func (r *Reconciler) reconcilePending(ctx context.Context, log *zap.Logger) {
 			UserID:         req.UserID,
 			Username:       req.Username,
 		}); err != nil {
-			log.Warn("re-enqueue orphaned pending request failed",
-				zap.Uint("request_entry_id", req.ID),
-				zap.Error(err),
+			log.WarnContext(ctx, "re-enqueue orphaned pending request failed",
+				"request_entry_id", req.ID,
+				logger.Err(err),
 			)
 			continue
 		}
-		log.Info("re-enqueued orphaned pending request", zap.Uint("request_entry_id", req.ID))
+		log.InfoContext(ctx, "re-enqueued orphaned pending request", "request_entry_id", req.ID)
 	}
 }
 
-func (r *Reconciler) reconcileQueued(ctx context.Context, log *zap.Logger) {
+func (r *Reconciler) reconcileQueued(ctx context.Context, log *slog.Logger) {
 	rows, err := r.repo.ListStuckQueued(ctx, reconcilerMinAge, r.downloadForward.HasForwardJobForRequest)
 	if err != nil {
-		log.Warn("list stuck queued requests failed", zap.Error(err))
+		log.WarnContext(ctx, "list stuck queued requests failed", logger.Err(err))
 		return
 	}
 	for i := range rows {
@@ -121,20 +121,20 @@ func (r *Reconciler) reconcileQueued(ctx context.Context, log *zap.Logger) {
 			UserID:         req.UserID,
 			Username:       req.Username,
 		}); err != nil {
-			log.Warn("re-enqueue stuck queued download failed",
-				zap.Uint("request_entry_id", req.ID),
-				zap.Error(err),
+			log.WarnContext(ctx, "re-enqueue stuck queued download failed",
+				"request_entry_id", req.ID,
+				logger.Err(err),
 			)
 			continue
 		}
-		log.Info("re-enqueued stuck queued download", zap.Uint("request_entry_id", req.ID))
+		log.InfoContext(ctx, "re-enqueued stuck queued download", "request_entry_id", req.ID)
 	}
 }
 
-func (r *Reconciler) reconcileRemoving(ctx context.Context, log *zap.Logger) {
+func (r *Reconciler) reconcileRemoving(ctx context.Context, log *slog.Logger) {
 	rows, err := r.repo.ListStuckRemoving(ctx, reconcilerMinAge, r.removeForward.HasForwardJobForRequest)
 	if err != nil {
-		log.Warn("list stuck removing requests failed", zap.Error(err))
+		log.WarnContext(ctx, "list stuck removing requests failed", logger.Err(err))
 		return
 	}
 	for i := range rows {
@@ -146,31 +146,31 @@ func (r *Reconciler) reconcileRemoving(ctx context.Context, log *zap.Logger) {
 			UserID:         req.UserID,
 			Username:       req.Username,
 		}); err != nil {
-			log.Warn("re-enqueue stuck removing request failed",
-				zap.Uint("request_entry_id", req.ID),
-				zap.Error(err),
+			log.WarnContext(ctx, "re-enqueue stuck removing request failed",
+				"request_entry_id", req.ID,
+				logger.Err(err),
 			)
 			continue
 		}
-		log.Info("re-enqueued stuck removing request", zap.Uint("request_entry_id", req.ID))
+		log.InfoContext(ctx, "re-enqueued stuck removing request", "request_entry_id", req.ID)
 	}
 }
 
-func (r *Reconciler) purge(ctx context.Context, log *zap.Logger) {
+func (r *Reconciler) purge(ctx context.Context, log *slog.Logger) {
 	n, err := r.repo.PurgeTerminalOlderThan(ctx, r.requestRetention)
 	if err != nil {
-		log.Warn("purge terminal requests failed", zap.Error(err))
+		log.WarnContext(ctx, "purge terminal requests failed", logger.Err(err))
 		return
 	}
 	if n > 0 {
-		log.Info("purged old terminal request rows", zap.Int64("count", n))
+		log.InfoContext(ctx, "purged old terminal request rows", "count", n)
 	}
 	if r.requestsQueue != nil {
 		qn, qerr := r.requestsQueue.PurgeCompletedOlderThan(ctx, r.queueRetention)
 		if qerr != nil {
-			log.Warn("purge completed queue jobs failed", zap.Error(qerr))
+			log.WarnContext(ctx, "purge completed queue jobs failed", logger.Err(qerr))
 		} else if qn > 0 {
-			log.Info("purged old completed queue jobs", zap.Int64("count", qn))
+			log.InfoContext(ctx, "purged old completed queue jobs", "count", qn)
 		}
 	}
 }

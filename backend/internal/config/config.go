@@ -102,12 +102,12 @@ func Load() (*AppConfig, error) {
 	}
 
 	if cfg.QBittorrent.Password == defaultQBittorrentPassword {
-		logger.Named("config").Warn(
+		logger.Component("config").Warn(
 			"QBITTORRENT_PASSWORD is unset; using the insecure built-in default — set it in the environment",
 		)
 	}
 	if cfg.Indexer.Prowlarr.Enabled && cfg.Indexer.Prowlarr.APIKey == "" {
-		logger.Named("config").Warn(
+		logger.Component("config").Warn(
 			"Prowlarr is enabled but PROWLARR_API_KEY is empty; indexer requests will be unauthenticated",
 		)
 	}

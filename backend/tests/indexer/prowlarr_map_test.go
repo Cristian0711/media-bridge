@@ -83,8 +83,8 @@ func TestToIndexerItems_FiltersTV(t *testing.T) {
 func TestNormalizeIMDB(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"tt0137523":  "tt0137523",
-		"1375664":   "tt1375664",
+		"tt0137523":   "tt0137523",
+		"1375664":     "tt1375664",
 		"imdb:209144": "tt0209144",
 	}
 	for in, want := range cases {

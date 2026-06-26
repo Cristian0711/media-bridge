@@ -3,11 +3,11 @@ package prowlarr
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	idx "github.com/Cristian0711/media-bridge/backend/internal/indexer"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -20,14 +20,14 @@ const (
 type Provider struct {
 	idx.BaseIndexer
 	client *Client
-	log    *zap.Logger
+	log    *slog.Logger
 }
 
 func NewProvider(cfg Config, enabled bool) *Provider {
 	return &Provider{
 		BaseIndexer: idx.BaseIndexer{Name: providerName, ID: providerID, Enabled: enabled},
 		client:      NewClient(cfg),
-		log:         logger.Named("indexer.prowlarr"),
+		log:         logger.Component("indexer.prowlarr"),
 	}
 }
 
@@ -80,10 +80,10 @@ func (p *Provider) search(ctx context.Context, req idx.SearchRequest, tv bool) (
 		items = filtered
 	}
 
-	p.log.Info("prowlarr mapped results",
-		zap.String("type", searchType),
-		zap.Int("raw", len(releases)),
-		zap.Int("mapped", len(items)))
+	p.log.InfoContext(ctx, "prowlarr mapped results",
+		"type", searchType,
+		"raw", len(releases),
+		"mapped", len(items))
 	return items, nil
 }
 
@@ -93,7 +93,7 @@ func (p *Provider) resolveIndexerIDs(ctx context.Context, names []string) ([]int
 	}
 	indexers, err := p.client.ListIndexers(ctx)
 	if err != nil {
-		p.log.Warn("prowlarr indexer list failed, searching all indexers", zap.Error(err))
+		p.log.WarnContext(ctx, "prowlarr indexer list failed, searching all indexers", logger.Err(err))
 		return nil, nil
 	}
 	return ResolveIndexerIDs(indexers, names), nil

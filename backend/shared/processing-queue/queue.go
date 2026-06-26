@@ -144,13 +144,20 @@ func (q *Queue[T]) EnsureTable(ctx context.Context) error {
 			completed_at     TIMESTAMPTZ,
 
 			worker_id        TEXT,
-			error            TEXT
+			error            TEXT,
+
+			-- W3C trace context captured at enqueue, used to link the worker's
+			-- span back to the producing request/job.
+			traceparent      TEXT
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_%s_poll
 			ON %s (queue_name, queued_at ASC)
 			WHERE status = 'pending';
-	`, q.opts.Table, q.opts.Table, q.opts.Table)
+
+		-- Idempotent add for tables created before the traceparent column existed.
+		ALTER TABLE %s ADD COLUMN IF NOT EXISTS traceparent TEXT;
+	`, q.opts.Table, q.opts.Table, q.opts.Table, q.opts.Table)
 
 	if _, err := q.db.Exec(ctx, sql); err != nil {
 		return fmt.Errorf("ensure table: %w", err)
@@ -170,11 +177,11 @@ func (q *Queue[T]) HasJobForPayloadField(ctx context.Context, field string, valu
 
 // Enqueue adds a new job to the back of the queue.
 func (q *Queue[T]) Enqueue(ctx context.Context, payload T) error {
-	args, err := enqueueArgs(q.name, q.opts, payload)
+	args, err := enqueueArgs(ctx, q.name, q.opts, payload)
 	if err != nil {
 		return err
 	}
-	sql := buildEnqueueSQL(q.opts.Table, [4]string{"$1", "$2", "$3", "$4"})
+	sql := buildEnqueueSQL(q.opts.Table, [5]string{"$1", "$2", "$3", "$4", "$5"})
 	if _, err := q.db.Exec(ctx, sql, args...); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}
@@ -214,7 +221,7 @@ func (q *Queue[T]) Dequeue(ctx context.Context, workerID string) (*Job[T], error
 			id, queue_name, payload, status,
 			attempts, max_attempts, retry_after,
 			queued_at, created_at, last_processed_at, started_at, completed_at,
-			worker_id, error
+			worker_id, error, traceparent
 	`, q.opts.Table, q.opts.Table)
 
 	row := q.db.QueryRow(ctx, sql, workerID, q.name)

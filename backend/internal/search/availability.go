@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"go.uber.org/zap"
+	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 )
 
 // AvailabilityQuery identifies a title to check against the server library.
@@ -69,7 +69,7 @@ func (s *Service) annotateResults(ctx context.Context, results []Result) []Resul
 	avail, err := s.availability.Available(ctx, queries)
 	if err != nil || len(avail) != len(queries) {
 		if err != nil {
-			s.log.Warn("availability annotate failed", zap.Error(err))
+			s.log.WarnContext(ctx, "availability annotate failed", logger.Err(err))
 		}
 		return results
 	}
@@ -107,7 +107,7 @@ func (s *Service) annotateCatalog(ctx context.Context, catalog *BrowseCatalog) *
 	avail, err := s.availability.Available(ctx, queries)
 	if err != nil || len(avail) != len(queries) {
 		if err != nil {
-			s.log.Warn("availability annotate failed", zap.Error(err))
+			s.log.WarnContext(ctx, "availability annotate failed", logger.Err(err))
 		}
 		return catalog
 	}

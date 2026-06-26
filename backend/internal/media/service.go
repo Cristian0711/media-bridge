@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	"github.com/Cristian0711/media-bridge/backend/shared/pagination"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -288,28 +288,28 @@ func derefSizeBytes(v *int64) int64 {
 }
 
 func (s *service) removeMovie(ctx context.Context, input CreateFromRequestInput) error {
-	return s.removeMedia(ctx, "movie", input.MediaID, func(ctx context.Context, row *Media) (zap.Field, error) {
+	return s.removeMedia(ctx, "movie", input.MediaID, func(ctx context.Context, row *Media) (slog.Attr, error) {
 		if row.MovieID == nil {
-			return zap.Skip(), fmt.Errorf("media %d is not linked to a movie", row.ID)
+			return slog.Attr{}, fmt.Errorf("media %d is not linked to a movie", row.ID)
 		}
 		s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(row))
 		if err := s.repo.DeleteMovieMediaCascade(ctx, row.ID, *row.MovieID); err != nil {
-			return zap.Skip(), err
+			return slog.Attr{}, err
 		}
-		return zap.Uint("movie_id", *row.MovieID), nil
+		return slog.Uint64("movie_id", uint64(*row.MovieID)), nil
 	})
 }
 
 func (s *service) removeShow(ctx context.Context, input CreateFromRequestInput) error {
-	return s.removeMedia(ctx, "show", input.MediaID, func(ctx context.Context, row *Media) (zap.Field, error) {
+	return s.removeMedia(ctx, "show", input.MediaID, func(ctx context.Context, row *Media) (slog.Attr, error) {
 		if row.ShowEntryID == nil {
-			return zap.Skip(), fmt.Errorf("media %d is not linked to a show entry", row.ID)
+			return slog.Attr{}, fmt.Errorf("media %d is not linked to a show entry", row.ID)
 		}
 		s.publisher.PublishMediaRemoved(ctx, ToSSEPayload(row))
 		if err := s.repo.DeleteShowMediaCascade(ctx, row.ID, *row.ShowEntryID); err != nil {
-			return zap.Skip(), err
+			return slog.Attr{}, err
 		}
-		return zap.Uint("show_entry_id", *row.ShowEntryID), nil
+		return slog.Uint64("show_entry_id", uint64(*row.ShowEntryID)), nil
 	})
 }
 
@@ -321,16 +321,16 @@ func (s *service) removeMedia(
 	ctx context.Context,
 	kind string,
 	mediaID uint,
-	remove func(ctx context.Context, row *Media) (zap.Field, error),
+	remove func(ctx context.Context, row *Media) (slog.Attr, error),
 ) error {
-	log := logger.Named("media.remove")
+	log := logger.Component("media.remove")
 	if mediaID == 0 {
 		return fmt.Errorf("%s removal requires media_id", kind)
 	}
 	mediaRow, err := s.repo.FindByID(ctx, mediaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Info(kind+" remove skipped: media not found", zap.Uint("media_id", mediaID))
+			log.InfoContext(ctx, kind+" remove skipped: media not found", "media_id", mediaID)
 			return nil
 		}
 		return err
@@ -339,12 +339,11 @@ func (s *service) removeMedia(
 	if err != nil {
 		return err
 	}
-	log.Info("removed media row",
-		zap.Uint("media_id", mediaRow.ID),
-		zap.String("media_type", string(mediaRow.Type)),
-		zap.String("name", mediaRow.Name),
-		idField,
-	)
+	args := []any{"media_id", mediaRow.ID, "media_type", string(mediaRow.Type), "name", mediaRow.Name}
+	if idField.Key != "" {
+		args = append(args, idField)
+	}
+	log.InfoContext(ctx, "removed media row", args...)
 	return nil
 }
 
@@ -352,9 +351,9 @@ func (s *service) removeMedia(
 func (s *service) emitMediaAdded(ctx context.Context, mediaID uint) {
 	row, err := s.repo.FindByID(ctx, mediaID)
 	if err != nil {
-		logger.Named("media.sse").Warn("skip media.added event: load failed",
-			zap.Uint("media_id", mediaID),
-			zap.Error(err),
+		logger.Component("media.sse").WarnContext(ctx, "skip media.added event: load failed",
+			"media_id", mediaID,
+			logger.Err(err),
 		)
 		return
 	}

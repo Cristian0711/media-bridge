@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.uber.org/zap"
 )
 
 type QueuePayload struct {
@@ -72,7 +72,7 @@ func (p *Processor) SetRemoveGuard(guard RemoveInProgressGuard) {
 }
 
 // checkRemoveInProgress returns a retryable error when a remove job is active for this media (H5).
-func (p *Processor) checkRemoveInProgress(ctx context.Context, log *zap.Logger, mediaID uint, jobID string) error {
+func (p *Processor) checkRemoveInProgress(ctx context.Context, log *slog.Logger, mediaID uint, jobID string) error {
 	if p.removeGuard == nil || mediaID == 0 {
 		return nil
 	}
@@ -81,9 +81,9 @@ func (p *Processor) checkRemoveInProgress(ctx context.Context, log *zap.Logger, 
 		return err
 	}
 	if active {
-		log.Info("deferring hardlink while remove is in progress",
-			zap.Uint("media_id", mediaID),
-			zap.String("job_id", jobID),
+		log.InfoContext(ctx, "deferring hardlink while remove is in progress",
+			"media_id", mediaID,
+			"job_id", jobID,
 		)
 		return fmt.Errorf("remove in progress for media %d", mediaID)
 	}
@@ -94,8 +94,11 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	if workers < 1 {
 		workers = 1
 	}
-	log := logger.Named("hardlink.queue.worker")
+	log := logger.Component("hardlink.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
+		// Attribute this job's logs to the user who triggered it (executed by a
+		// worker, not a live request).
+		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.hardlink"))
 		if err := p.checkRemoveInProgress(ctx, log, job.Payload.MediaID, job.ID.String()); err != nil {
 			return err
 		}
@@ -106,19 +109,19 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 			// flow) while we were running, the hardlinks we just created are
 			// about to be torn down. Don't flip the request to 'downloaded'.
 			if status, gerr := p.queue.GetStatus(ctx, job.ID); gerr == nil && status != "processing" {
-				log.Info("hardlink succeeded but job was cancelled mid-flight; skipping request status update",
-					zap.String("job_id", job.ID.String()),
-					zap.String("queue_status", status),
-					zap.Uint("media_id", job.Payload.MediaID),
+				log.InfoContext(ctx, "hardlink succeeded but job was cancelled mid-flight; skipping request status update",
+					"job_id", job.ID.String(),
+					"queue_status", status,
+					"media_id", job.Payload.MediaID,
 				)
 				return nil
 			}
-			log.Info("hardlink job processed; awaiting torrent completion before marking downloaded",
-				zap.String("job_id", job.ID.String()),
-				zap.Uint("media_id", job.Payload.MediaID),
-				zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-				zap.Uint("user_id", job.Payload.UserID),
-				zap.String("username", job.Payload.Username),
+			log.InfoContext(ctx, "hardlink job processed; awaiting torrent completion before marking downloaded",
+				"job_id", job.ID.String(),
+				"media_id", job.Payload.MediaID,
+				"request_entry_id", job.Payload.RequestEntryID,
+				"user_id", job.Payload.UserID,
+				"username", job.Payload.Username,
 			)
 			return nil
 		}
@@ -134,10 +137,10 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 			p.markRequest(ctx, log, job.Payload.RequestEntryID, "failed")
 		}
 		if deferRetry {
-			log.Debug("hardlink deferred until torrent finishes downloading",
-				zap.String("job_id", job.ID.String()),
-				zap.Uint("media_id", job.Payload.MediaID),
-				zap.Error(err),
+			log.DebugContext(ctx, "hardlink deferred until torrent finishes downloading",
+				"job_id", job.ID.String(),
+				"media_id", job.Payload.MediaID,
+				logger.Err(err),
 			)
 		}
 		return err
@@ -145,19 +148,19 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	for i := 1; i <= workers; i++ {
 		workerID := fmt.Sprintf("hardlink-worker-%d", i)
 		p.queue.StartWorker(ctx, workerID, handler)
-		log.Info("hardlink queue worker started", zap.String("worker_id", workerID))
+		log.InfoContext(ctx, "hardlink queue worker started", "worker_id", workerID)
 	}
 }
 
-func (p *Processor) markRequest(ctx context.Context, log *zap.Logger, requestID uint, status string) {
+func (p *Processor) markRequest(ctx context.Context, log *slog.Logger, requestID uint, status string) {
 	if p.requestStatus == nil || requestID == 0 {
 		return
 	}
 	if err := p.requestStatus.UpdateStatus(ctx, requestID, status); err != nil {
-		log.Warn("failed to update request status",
-			zap.Uint("request_entry_id", requestID),
-			zap.String("status", status),
-			zap.Error(err),
+		log.WarnContext(ctx, "failed to update request status",
+			"request_entry_id", requestID,
+			"status", status,
+			logger.Err(err),
 		)
 	}
 }

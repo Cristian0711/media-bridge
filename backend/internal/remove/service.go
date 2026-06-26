@@ -46,13 +46,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 type RequestDetails struct {
@@ -98,14 +98,14 @@ func NewService(
 }
 
 func (s *service) Process(ctx context.Context, request RequestDetails) error {
-	log := logger.Named("remove").With(
-		zap.Uint("media_id", request.MediaID),
-		zap.String("request_id", request.RequestID),
-		zap.String("type", request.Type),
+	log := logger.Component("remove").With(
+		"media_id", request.MediaID,
+		"request_id", request.RequestID,
+		"type", request.Type,
 	)
 
 	if request.MediaID == 0 {
-		log.Warn("remove called with media_id=0, nothing to do")
+		log.WarnContext(ctx, "remove called with media_id=0, nothing to do")
 		return nil
 	}
 
@@ -116,7 +116,7 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	if s.hardlinkCanceler != nil {
 		if err := s.hardlinkCanceler.CancelByMediaID(ctx, request.MediaID); err != nil {
 			// Non-fatal — if we can't reach the queue we still try to delete.
-			log.Warn("cancel hardlink jobs failed (continuing)", zap.Error(err))
+			log.WarnContext(ctx, "cancel hardlink jobs failed (continuing)", logger.Err(err))
 		}
 	}
 
@@ -124,7 +124,7 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	row, err := s.mediaService.GetMediaByID(ctx, request.MediaID)
 	if err != nil {
 		if errors.Is(err, media.ErrMediaNotFound) {
-			log.Info("media row already gone, treating as success")
+			log.InfoContext(ctx, "media row already gone, treating as success")
 			return nil
 		}
 		return fmt.Errorf("load media %d: %w", request.MediaID, err)
@@ -135,9 +135,9 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 		return fmt.Errorf("resolve paths for media %d: %w", request.MediaID, err)
 	}
 	log = log.With(
-		zap.String("save_path", paths.SavePath),
-		zap.String("torrent_hash", paths.TorrentHash),
-		zap.String("dest_path", paths.DestPath),
+		"save_path", paths.SavePath,
+		"torrent_hash", paths.TorrentHash,
+		"dest_path", paths.DestPath,
 	)
 
 	// (3) Forget the torrent in qBittorrent first, without touching files.
@@ -156,13 +156,13 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 	}
 
 	// (9) Best-effort empty-dir cleanup.
-	cleanupEmptyDirs(log, paths)
+	cleanupEmptyDirs(ctx, log, paths)
 
-	log.Info("remove completed",
-		zap.Int("sources_indexed", counts.sourcesIndexed),
-		zap.Int("hardlinks_removed", counts.hardlinksRemoved),
-		zap.Int("hardlinks_removed_late", counts.hardlinksRemovedLate),
-		zap.Int("sources_removed", counts.sourcesRemoved),
+	log.InfoContext(ctx, "remove completed",
+		"sources_indexed", counts.sourcesIndexed,
+		"hardlinks_removed", counts.hardlinksRemoved,
+		"hardlinks_removed_late", counts.hardlinksRemovedLate,
+		"sources_removed", counts.sourcesRemoved,
 	)
 	return nil
 }
@@ -170,13 +170,13 @@ func (s *service) Process(ctx context.Context, request RequestDetails) error {
 // forgetTorrent tells qBittorrent to drop the torrent without deleting files.
 // A missing torrent is fine; any other error is surfaced as a retry so we never
 // start unlinking files while qBittorrent may still hold them open.
-func (s *service) forgetTorrent(ctx context.Context, log *zap.Logger, hash string) error {
+func (s *service) forgetTorrent(ctx context.Context, log *slog.Logger, hash string) error {
 	if hash == "" {
 		return nil
 	}
 	if err := s.qbitService.RemoveTorrent(ctx, hash); err != nil {
 		if errors.Is(err, qbittorrent.ErrTorrentNotFound) {
-			log.Info("torrent already absent from qbittorrent")
+			log.InfoContext(ctx, "torrent already absent from qbittorrent")
 			return nil
 		}
 		return fmt.Errorf("remove torrent from qbittorrent: %w", err)
@@ -195,7 +195,7 @@ type removalCounts struct {
 // purgeFiles performs steps 4–8: index the source inodes, delete the
 // destination hardlinks, delete the source files, sweep destination hardlinks a
 // second time (racing hardlink worker), then gate on a fully-drained state.
-func (s *service) purgeFiles(ctx context.Context, log *zap.Logger, paths *resolvedPaths) (removalCounts, error) {
+func (s *service) purgeFiles(ctx context.Context, log *slog.Logger, paths *resolvedPaths) (removalCounts, error) {
 	var counts removalCounts
 
 	// (4) Index savePath: (device, inode) for every regular file. The pair
@@ -249,15 +249,15 @@ func (s *service) purgeFiles(ctx context.Context, log *zap.Logger, paths *resolv
 // cleanupEmptyDirs is best-effort tidying (step 9). os.Remove on a non-empty
 // dir fails with ENOTEMPTY which we treat as "leave it alone" — exactly what we
 // want for show folders that still hold other episodes.
-func cleanupEmptyDirs(log *zap.Logger, paths *resolvedPaths) {
+func cleanupEmptyDirs(ctx context.Context, log *slog.Logger, paths *resolvedPaths) {
 	if paths.SavePath != "" {
-		tryRemoveEmptyTreeBottomUp(log, paths.SavePath)
+		tryRemoveEmptyTreeBottomUp(ctx, log, paths.SavePath)
 	}
 	if paths.DestPath != "" {
-		tryRemoveEmptyTreeBottomUp(log, paths.DestPath)
+		tryRemoveEmptyTreeBottomUp(ctx, log, paths.DestPath)
 	}
 	if paths.ShowRoot != "" && paths.ShowRoot != paths.DestPath {
-		tryRemoveEmpty(log, paths.ShowRoot)
+		tryRemoveEmpty(ctx, log, paths.ShowRoot)
 	}
 }
 
@@ -280,14 +280,14 @@ type sourceFile struct {
 //   - context cancellation aborts the walk and is returned;
 //   - per-path walk errors: when logContinue != nil they are logged and the
 //     offending subtree is skipped, otherwise they abort the walk and propagate.
-func walkRegularFiles(ctx context.Context, root string, logContinue *zap.Logger, fn func(path string, info os.FileInfo) error) error {
+func walkRegularFiles(ctx context.Context, root string, logContinue *slog.Logger, fn func(path string, info os.FileInfo) error) error {
 	err := filepath.Walk(root, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			if os.IsNotExist(walkErr) {
 				return nil
 			}
 			if logContinue != nil {
-				logContinue.Warn("walk error (continuing)", zap.String("path", p), zap.Error(walkErr))
+				logContinue.WarnContext(ctx, "walk error (continuing)", "path", p, logger.Err(walkErr))
 				return nil
 			}
 			return walkErr
@@ -312,13 +312,13 @@ func walkRegularFiles(ctx context.Context, root string, logContinue *zap.Logger,
 //
 // A missing savePath is treated as "no sources to delete"; this can happen
 // on a retry that finished partially, or when the download never started.
-func indexSources(ctx context.Context, log *zap.Logger, savePath string) ([]sourceFile, error) {
+func indexSources(ctx context.Context, log *slog.Logger, savePath string) ([]sourceFile, error) {
 	var out []sourceFile
 	err := walkRegularFiles(ctx, savePath, log, func(p string, info os.FileInfo) error {
 		key, ok := keyOf(info)
 		if !ok {
 			// Non-Unix FileInfo? Skip — without inode info we can't find a hardlink.
-			log.Warn("no inode info for file, skipping", zap.String("path", p))
+			log.WarnContext(ctx, "no inode info for file, skipping", "path", p)
 			return nil
 		}
 		out = append(out, sourceFile{path: p, key: key})
@@ -334,7 +334,7 @@ func indexSources(ctx context.Context, log *zap.Logger, savePath string) ([]sour
 //
 // destPath is scoped to the media's expected dest folder (movie folder, or
 // show root / season folder), so we don't scan the whole library.
-func removeHardlinksByInode(ctx context.Context, log *zap.Logger, destPath string, keys map[fileKey]string) int {
+func removeHardlinksByInode(ctx context.Context, log *slog.Logger, destPath string, keys map[fileKey]string) int {
 	removed := 0
 	_ = walkRegularFiles(ctx, destPath, log, func(p string, info os.FileInfo) error {
 		key, ok := keyOf(info)
@@ -345,13 +345,13 @@ func removeHardlinksByInode(ctx context.Context, log *zap.Logger, destPath strin
 		if !match {
 			return nil
 		}
-		log.Debug("found hardlink by inode",
-			zap.String("hardlink", p),
-			zap.String("source", src),
-			zap.Uint64("dev", key.dev),
-			zap.Uint64("ino", key.ino),
+		log.DebugContext(ctx, "found hardlink by inode",
+			"hardlink", p,
+			"source", src,
+			"dev", key.dev,
+			"ino", key.ino,
 		)
-		removeFileIfExists(log, p, "hardlink")
+		removeFileIfExists(ctx, log, p, "hardlink")
 		removed++
 		return nil
 	})
@@ -378,19 +378,19 @@ func countRegularFiles(ctx context.Context, root string) (int, error) {
 // This walks instead of replaying the inode index because the index is a
 // snapshot taken before qBittorrent was told to release the torrent; files
 // that appeared between the snapshot and the release still need cleanup.
-func removeAllRegularFiles(ctx context.Context, log *zap.Logger, root string) int {
+func removeAllRegularFiles(ctx context.Context, log *slog.Logger, root string) int {
 	removed := 0
 	_ = walkRegularFiles(ctx, root, log, func(p string, info os.FileInfo) error {
 		switch err := os.Remove(p); {
 		case err == nil:
 			removed++
-			log.Debug("removed source file", zap.String("path", p))
+			log.DebugContext(ctx, "removed source file", "path", p)
 		case os.IsNotExist(err):
 			// concurrent removal — fine
 		default:
-			log.Warn("remove source file failed (continuing)",
-				zap.String("path", p),
-				zap.Error(err),
+			log.WarnContext(ctx, "remove source file failed (continuing)",
+				"path", p,
+				logger.Err(err),
 			)
 		}
 		return nil
@@ -450,13 +450,13 @@ func (s *service) resolvePaths(row *media.Media) (*resolvedPaths, error) {
 
 const removalDrainMaxPasses = 3
 
-func verifyRemovalDrained(ctx context.Context, log *zap.Logger, paths *resolvedPaths, keys map[fileKey]string) error {
+func verifyRemovalDrained(ctx context.Context, log *slog.Logger, paths *resolvedPaths, keys map[fileKey]string) error {
 	for pass := 1; pass <= removalDrainMaxPasses; pass++ {
 		if len(keys) > 0 && paths.DestPath != "" {
 			if removed := removeHardlinksByInode(ctx, log, paths.DestPath, keys); removed > 0 {
-				log.Info("removed late hardlinks during drain gate",
-					zap.Int("removed", removed),
-					zap.Int("pass", pass),
+				log.InfoContext(ctx, "removed late hardlinks during drain gate",
+					"removed", removed,
+					"pass", pass,
 				)
 			}
 		}
@@ -517,41 +517,41 @@ func deref(p *string) string {
 // removeFileIfExists deletes a regular file, treating ENOENT as success.
 // All other errors are logged at warn but do not propagate — the queue
 // retries the whole job, so a transient I/O error gets another chance.
-func removeFileIfExists(log *zap.Logger, path, kind string) {
+func removeFileIfExists(ctx context.Context, log *slog.Logger, path, kind string) {
 	if path == "" {
 		return
 	}
 	switch err := os.Remove(path); {
 	case err == nil:
-		log.Debug("removed file", zap.String("kind", kind), zap.String("path", path))
+		log.DebugContext(ctx, "removed file", "kind", kind, "path", path)
 	case os.IsNotExist(err):
 		// expected on retries / partial states
 	default:
-		log.Warn("remove file failed (continuing)",
-			zap.String("kind", kind),
-			zap.String("path", path),
-			zap.Error(err),
+		log.WarnContext(ctx, "remove file failed (continuing)",
+			"kind", kind,
+			"path", path,
+			logger.Err(err),
 		)
 	}
 }
 
 // tryRemoveEmpty attempts to delete `dir`. Failures (non-empty, missing,
 // permissions) are intentionally swallowed — this is best-effort tidying.
-func tryRemoveEmpty(log *zap.Logger, dir string) {
+func tryRemoveEmpty(ctx context.Context, log *slog.Logger, dir string) {
 	if dir == "" {
 		return
 	}
 	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
-		log.Debug("dir not removed (likely non-empty)", zap.String("path", dir), zap.Error(err))
+		log.DebugContext(ctx, "dir not removed (likely non-empty)", "path", dir, logger.Err(err))
 		return
 	}
-	log.Debug("removed empty dir", zap.String("path", dir))
+	log.DebugContext(ctx, "removed empty dir", "path", dir)
 }
 
 // tryRemoveEmptyTreeBottomUp walks `root` and removes every empty directory
 // in deepest-first order, then `root` itself. It never deletes files — only
 // empty directories — so it's safe to call on shared folders.
-func tryRemoveEmptyTreeBottomUp(log *zap.Logger, root string) {
+func tryRemoveEmptyTreeBottomUp(ctx context.Context, log *slog.Logger, root string) {
 	type entry struct {
 		path string
 		info os.FileInfo
@@ -568,6 +568,6 @@ func tryRemoveEmptyTreeBottomUp(log *zap.Logger, root string) {
 	})
 	// Walk emits parents before children; iterate in reverse to delete deepest first.
 	for i := len(dirs) - 1; i >= 0; i-- {
-		tryRemoveEmpty(log, dirs[i].path)
+		tryRemoveEmpty(ctx, log, dirs[i].path)
 	}
 }

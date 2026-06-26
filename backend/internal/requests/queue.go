@@ -3,6 +3,7 @@ package requests
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/download"
@@ -10,7 +11,6 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -81,8 +81,11 @@ func (p *QueueProcessor) Start(ctx context.Context, workers int) {
 	if workers < 1 {
 		workers = 1
 	}
-	log := logger.Named("requests.queue.worker")
+	log := logger.Component("requests.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
+		// Attribute this job's logs to the user who triggered it (executed by a
+		// worker, not a live request).
+		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.requests"))
 		req, err := p.repo.FindByID(ctx, job.Payload.RequestEntryID)
 		if err != nil {
 			return err
@@ -92,7 +95,7 @@ func (p *QueueProcessor) Start(ctx context.Context, workers int) {
 	for i := 1; i <= workers; i++ {
 		workerID := fmt.Sprintf("requests-worker-%d", i)
 		p.queue.StartWorker(ctx, workerID, handler)
-		log.Info("requests queue worker started", zap.String("worker_id", workerID))
+		log.InfoContext(ctx, "requests queue worker started", "worker_id", workerID)
 	}
 }
 
@@ -101,14 +104,14 @@ func (p *QueueProcessor) Start(ctx context.Context, workers int) {
 // create duplicate downstream jobs (C2).
 func (p *QueueProcessor) processRequest(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	job *processingqueue.Job[QueuePayload],
 	req *Request,
 ) error {
 	if req.Status != StatusPending {
-		log.Debug("request already forwarded; skipping child enqueue",
-			zap.Uint("request_entry_id", req.ID),
-			zap.String("status", req.Status),
+		log.DebugContext(ctx, "request already forwarded; skipping child enqueue",
+			"request_entry_id", req.ID,
+			"status", req.Status,
 		)
 		return nil
 	}
@@ -129,32 +132,32 @@ func (p *QueueProcessor) processRequest(
 		return fmt.Errorf("unsupported request type: %s", req.Type)
 	}
 
-	log.Info("request job forwarded",
-		zap.String("job_id", job.ID.String()),
-		zap.String("queue_name", job.QueueName),
-		zap.String("job_status", job.Status),
-		zap.Int("attempts", job.Attempts),
-		zap.Uint("request_entry_id", req.ID),
-		zap.String("request_id", req.RequestID),
-		zap.String("request_type", req.Type),
-		zap.String("request_name", req.Name),
-		zap.Uint("user_id", req.UserID),
-		zap.String("username", req.Username),
-		zap.String("indexer", req.Indexer),
-		zap.String("quality", req.Quality),
-		zap.String("target_queue", targetQueue),
+	log.InfoContext(ctx, "request job forwarded",
+		"job_id", job.ID.String(),
+		"queue_name", job.QueueName,
+		"job_status", job.Status,
+		"attempts", job.Attempts,
+		"request_entry_id", req.ID,
+		"request_id", req.RequestID,
+		"request_type", req.Type,
+		"request_name", req.Name,
+		"user_id", req.UserID,
+		"username", req.Username,
+		"indexer", req.Indexer,
+		"quality", req.Quality,
+		"target_queue", targetQueue,
 	)
 	return nil
 }
 
-func (p *QueueProcessor) forwardDownload(ctx context.Context, log *zap.Logger, req *Request) error {
+func (p *QueueProcessor) forwardDownload(ctx context.Context, log *slog.Logger, req *Request) error {
 	hasJob, err := p.downloadQueue.HasForwardJobForRequest(ctx, req.ID)
 	if err != nil {
 		return err
 	}
 	if hasJob {
-		log.Info("download job already exists for request; skipping enqueue",
-			zap.Uint("request_entry_id", req.ID),
+		log.InfoContext(ctx, "download job already exists for request; skipping enqueue",
+			"request_entry_id", req.ID,
 		)
 	} else if err := p.downloadQueue.Enqueue(ctx, download.QueuePayload{
 		RequestEntryID: req.ID,
@@ -168,14 +171,14 @@ func (p *QueueProcessor) forwardDownload(ctx context.Context, log *zap.Logger, r
 	return p.markForwarded(ctx, log, req, p.repo.MarkQueuedIfPending)
 }
 
-func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req *Request) error {
+func (p *QueueProcessor) forwardRemove(ctx context.Context, log *slog.Logger, req *Request) error {
 	hasJob, err := p.removeQueue.HasForwardJobForRequest(ctx, req.ID)
 	if err != nil {
 		return err
 	}
 	if hasJob {
-		log.Info("remove job already exists for request; skipping enqueue",
-			zap.Uint("request_entry_id", req.ID),
+		log.InfoContext(ctx, "remove job already exists for request; skipping enqueue",
+			"request_entry_id", req.ID,
 		)
 	} else if err := p.removeQueue.Enqueue(ctx, remove.QueuePayload{
 		RequestEntryID: req.ID,
@@ -194,7 +197,7 @@ func (p *QueueProcessor) forwardRemove(ctx context.Context, log *zap.Logger, req
 // tolerating the case where the request already advanced past pending.
 func (p *QueueProcessor) markForwarded(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	req *Request,
 	mark func(ctx context.Context, requestID uint) (bool, error),
 ) error {
@@ -203,8 +206,8 @@ func (p *QueueProcessor) markForwarded(
 		return err
 	}
 	if !updated {
-		log.Debug("skip status update: request no longer pending",
-			zap.Uint("request_entry_id", req.ID),
+		log.DebugContext(ctx, "skip status update: request no longer pending",
+			"request_entry_id", req.ID,
 		)
 	}
 	return nil

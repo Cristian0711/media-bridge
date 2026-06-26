@@ -51,7 +51,8 @@ func CreateProcessingQueueTable(t *testing.T, db *gorm.DB) {
 			started_at DATETIME,
 			completed_at DATETIME,
 			worker_id TEXT,
-			error TEXT
+			error TEXT,
+			traceparent TEXT
 		)
 	`).Error; err != nil {
 		t.Fatalf("create processing_queue: %v", err)

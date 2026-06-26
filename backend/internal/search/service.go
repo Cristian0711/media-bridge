@@ -3,9 +3,9 @@ package search
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 // TMDBConfig holds credentials for The Movie Database API.
@@ -31,7 +31,7 @@ type ExternalIDs struct {
 
 type Service struct {
 	tmdb         *tmdbClient
-	log          *zap.Logger
+	log          *slog.Logger
 	logoCache    providerLogoCache
 	browseCache  *browseCache
 	availability AvailabilityChecker
@@ -40,7 +40,7 @@ type Service struct {
 func NewService(cfg TMDBConfig) *Service {
 	return &Service{
 		tmdb:        newTMDBClient(cfg),
-		log:         logger.Named("search.service"),
+		log:         logger.Component("search.service"),
 		browseCache: newBrowseCache(),
 	}
 }
@@ -59,11 +59,11 @@ func (s *Service) Search(ctx context.Context, query string, page int) (*SearchPa
 	}
 
 	results := tmdbResultToResults(resp.Results)
-	s.log.Info("tmdb search completed",
-		zap.String("query", query),
-		zap.Int("page", page),
-		zap.Int("results_count", len(results)),
-		zap.Int("total_pages", resp.TotalPages),
+	s.log.InfoContext(ctx, "tmdb search completed",
+		"query", query,
+		"page", page,
+		"results_count", len(results),
+		"total_pages", resp.TotalPages,
 	)
 	return &SearchPage{
 		Results:    results,

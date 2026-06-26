@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/Cristian0711/media-bridge/backend/shared/queueutil"
-	"go.uber.org/zap"
 )
 
 type QueuePayload struct {
@@ -79,8 +79,11 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	if workers < 1 {
 		workers = 1
 	}
-	log := logger.Named("remove.queue.worker")
+	log := logger.Component("remove.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
+		// Attribute this job's logs to the user who triggered it (executed by a
+		// worker, not a live request).
+		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.remove"))
 		req, err := p.requestSource.FindByID(ctx, job.Payload.RequestEntryID)
 		if err != nil {
 			return err
@@ -102,13 +105,13 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	for i := 1; i <= workers; i++ {
 		workerID := fmt.Sprintf("remove-worker-%d", i)
 		p.queue.StartWorker(ctx, workerID, handler)
-		log.Info("remove queue worker started", zap.String("worker_id", workerID))
+		log.InfoContext(ctx, "remove queue worker started", "worker_id", workerID)
 	}
 }
 
 func (p *Processor) processRemoveJob(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	job *processingqueue.Job[QueuePayload],
 	req *RequestDetails,
 ) error {
@@ -117,14 +120,14 @@ func (p *Processor) processRemoveJob(
 	if p.downloadCanceller != nil && req.MediaID != 0 {
 		n, cancelErr := p.downloadCanceller.CancelDownloadsByMediaID(ctx, req.MediaID)
 		if cancelErr != nil {
-			log.Warn("cancel download requests before remove failed (continuing)",
-				zap.Uint("media_id", req.MediaID),
-				zap.Error(cancelErr),
+			log.WarnContext(ctx, "cancel download requests before remove failed (continuing)",
+				"media_id", req.MediaID,
+				logger.Err(cancelErr),
 			)
 		} else if n > 0 {
-			log.Info("cancelled download requests before remove",
-				zap.Uint("media_id", req.MediaID),
-				zap.Int64("count", n),
+			log.InfoContext(ctx, "cancelled download requests before remove",
+				"media_id", req.MediaID,
+				"count", n,
 			)
 		}
 	}
@@ -145,24 +148,24 @@ func (p *Processor) processRemoveJob(
 			return fmt.Errorf("mark remove request removed: %w", err)
 		}
 		if !updated {
-			log.Warn("remove finished but request was not in removing state",
-				zap.Uint("request_entry_id", job.Payload.RequestEntryID),
+			log.WarnContext(ctx, "remove finished but request was not in removing state",
+				"request_entry_id", job.Payload.RequestEntryID,
 			)
 		}
 	}
 
-	log.Info("remove job processed",
-		zap.String("job_id", job.ID.String()),
-		zap.Uint("request_entry_id", job.Payload.RequestEntryID),
-		zap.String("request_id", job.Payload.RequestID),
-		zap.String("type", req.Type),
-		zap.Uint("user_id", job.Payload.UserID),
-		zap.String("username", job.Payload.Username),
+	log.InfoContext(ctx, "remove job processed",
+		"job_id", job.ID.String(),
+		"request_entry_id", job.Payload.RequestEntryID,
+		"request_id", job.Payload.RequestID,
+		"type", req.Type,
+		"user_id", job.Payload.UserID,
+		"username", job.Payload.Username,
 	)
 	return nil
 }
 
-func (p *Processor) markRemoveRequestFailed(ctx context.Context, log *zap.Logger, requestEntryID uint) {
+func (p *Processor) markRemoveRequestFailed(ctx context.Context, log *slog.Logger, requestEntryID uint) {
 	if p.requestStatus == nil {
 		return
 	}

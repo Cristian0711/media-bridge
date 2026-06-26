@@ -5,8 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -36,14 +37,14 @@ func NewScheduler(svc *Service, repo Repository) *Scheduler {
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
-	go s.loop(ctx)
+	go s.loop(logger.WithSystem(ctx, "health.scheduler"))
 }
 
 func (s *Scheduler) loop(ctx context.Context) {
-	log := logger.Named("health.scheduler")
-	log.Info("health scan scheduler started",
-		zap.Duration("quick_interval", s.quickEvery),
-		zap.Duration("full_interval", s.fullEvery),
+	log := logger.Component("health.scheduler")
+	log.InfoContext(ctx, "health scan scheduler started",
+		"quick_interval", s.quickEvery,
+		"full_interval", s.fullEvery,
 	)
 
 	s.runOnce(ctx, log)
@@ -54,7 +55,7 @@ func (s *Scheduler) loop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("health scan scheduler stopped")
+			log.InfoContext(ctx, "health scan scheduler stopped")
 			return
 		case <-ticker.C:
 			s.runOnce(ctx, log)
@@ -62,11 +63,11 @@ func (s *Scheduler) loop(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) runOnce(ctx context.Context, log *zap.Logger) {
+func (s *Scheduler) runOnce(ctx context.Context, log *slog.Logger) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
-		log.Debug("skip scheduled scan: previous still running")
+		log.DebugContext(ctx, "skip scheduled scan: previous still running")
 		return
 	}
 	s.running = true
@@ -93,13 +94,13 @@ func (s *Scheduler) runOnce(ctx context.Context, log *zap.Logger) {
 
 	row, err := s.repo.SaveScan(ctx, report, full, durationMS)
 	if err != nil {
-		log.Warn("failed to persist health scan", zap.Error(err))
+		log.WarnContext(ctx, "failed to persist health scan", logger.Err(err))
 		return
 	}
-	log.Info("scheduled health scan completed",
-		zap.Uint("scan_id", row.ID),
-		zap.String("status", report.Status),
-		zap.Bool("full_scan", full),
-		zap.Int64("duration_ms", durationMS),
+	log.InfoContext(ctx, "scheduled health scan completed",
+		"scan_id", row.ID,
+		"status", report.Status,
+		"full_scan", full,
+		"duration_ms", durationMS,
 	)
 }

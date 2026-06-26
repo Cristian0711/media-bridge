@@ -6,10 +6,11 @@ package queueutil
 
 import (
 	"context"
+	"log/slog"
 
+	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.uber.org/zap"
 )
 
 // NewQueue opens a pgx pool for databaseURL, builds a processing queue on the
@@ -51,7 +52,7 @@ func ListPayloads[T any](ctx context.Context, q *processingqueue.Queue[T], page,
 // It is a no-op when mark is nil or requestEntryID is zero.
 func MarkRequest(
 	ctx context.Context,
-	log *zap.Logger,
+	log *slog.Logger,
 	requestEntryID uint,
 	noun string,
 	mark func(context.Context, uint) (bool, error),
@@ -61,10 +62,10 @@ func MarkRequest(
 	}
 	updated, err := mark(ctx, requestEntryID)
 	if err != nil {
-		log.Warn("failed to mark "+noun, zap.Uint("request_entry_id", requestEntryID), zap.Error(err))
+		log.WarnContext(ctx, "failed to mark "+noun, "request_entry_id", requestEntryID, logger.Err(err))
 		return
 	}
 	if updated {
-		log.Info("marked "+noun, zap.Uint("request_entry_id", requestEntryID))
+		log.InfoContext(ctx, "marked "+noun, "request_entry_id", requestEntryID)
 	}
 }

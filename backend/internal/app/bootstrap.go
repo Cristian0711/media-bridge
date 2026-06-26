@@ -23,6 +23,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 // searchAvailabilityAdapter lets the search service flag library availability on
@@ -205,10 +206,19 @@ func Bootstrap() (*Server, error) {
 }
 
 func connectDB(cfg *config.AppConfig) (*gorm.DB, error) {
-	return gorm.Open(
+	db, err := gorm.Open(
 		postgres.Open(cfg.DatabaseURL),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)},
 	)
+	if err != nil {
+		return nil, err
+	}
+	// Emit a span per query (only when the calling ctx carries a span), so DB
+	// time shows up in request/job traces. Metrics are left to the metrics phase.
+	if err := db.Use(tracing.NewPlugin(tracing.WithoutMetrics())); err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 func migrate(db *gorm.DB) error {

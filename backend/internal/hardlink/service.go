@@ -12,7 +12,6 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
-	"go.uber.org/zap"
 )
 
 type Service interface {
@@ -115,9 +114,9 @@ func (s *service) showHardlinkPaths(row *media.Media) (torrentHash, savePath, de
 }
 
 func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, savePath, destinationPath, basePath string) error {
-	log := logger.Named("hardlink").With(
-		zap.Uint("media_id", mediaID),
-		zap.String("torrent_hash", torrentHash),
+	log := logger.Component("hardlink").With(
+		"media_id", mediaID,
+		"torrent_hash", torrentHash,
 	)
 
 	files, err := s.qbitService.GetTorrentFiles(ctx, torrentHash)
@@ -152,7 +151,7 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 		}
 
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			log.Warn("create dest dir failed", zap.String("dir", filepath.Dir(destPath)), zap.Error(err))
+			log.WarnContext(ctx, "create dest dir failed", "dir", filepath.Dir(destPath), logger.Err(err))
 			continue
 		}
 
@@ -166,7 +165,7 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 		}
 		if !os.IsExist(linkErr) {
 			// Source likely not yet downloaded yet — retry via queue.
-			log.Debug("os.Link failed", zap.String("source", sourcePath), zap.String("dest", destPath), zap.Error(linkErr))
+			log.DebugContext(ctx, "os.Link failed", "source", sourcePath, "dest", destPath, logger.Err(linkErr))
 			continue
 		}
 
@@ -179,23 +178,23 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 			linked++
 			continue
 		}
-		log.Warn("dest file exists with different inode, replacing",
-			zap.String("source", sourcePath),
-			zap.String("dest", destPath),
+		log.WarnContext(ctx, "dest file exists with different inode, replacing",
+			"source", sourcePath,
+			"dest", destPath,
 		)
 		if rerr := os.Remove(destPath); rerr != nil && !os.IsNotExist(rerr) {
-			log.Warn("could not remove stale dest before relink",
-				zap.String("dest", destPath), zap.Error(rerr))
+			log.WarnContext(ctx, "could not remove stale dest before relink",
+				"dest", destPath, logger.Err(rerr))
 			continue
 		}
 		if rerr := os.Link(sourcePath, destPath); rerr != nil {
 			if isCrossDeviceLinkErrno(rerr) {
 				return crossDeviceLinkError(sourcePath, destPath, rerr)
 			}
-			log.Warn("relink after stale removal failed",
-				zap.String("source", sourcePath),
-				zap.String("dest", destPath),
-				zap.Error(rerr))
+			log.WarnContext(ctx, "relink after stale removal failed",
+				"source", sourcePath,
+				"dest", destPath,
+				logger.Err(rerr))
 			continue
 		}
 		linked++
@@ -204,9 +203,9 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 	total := len(files)
 	remaining := total - linked
 	if remaining > 0 {
-		log.Info("hardlink progress",
-			zap.Int("remaining", remaining),
-			zap.Int("total", total),
+		log.InfoContext(ctx, "hardlink progress",
+			"remaining", remaining,
+			"total", total,
 		)
 		if err := s.errIfTorrentStillDownloading(ctx, torrentHash,
 			fmt.Sprintf("hardlinking in progress: %d remaining from %d", remaining, total)); err != nil {
@@ -215,11 +214,11 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 		return fmt.Errorf("hardlinking in progress: %d remaining from %d", remaining, total)
 	}
 
-	log.Info("hardlink completed",
-		zap.Int("total", total),
+	log.InfoContext(ctx, "hardlink completed",
+		"total", total,
 	)
 	if err := s.mediaService.UpdateLibraryPath(ctx, mediaID, destinationPath); err != nil {
-		log.Warn("persist library path failed", zap.Error(err))
+		log.WarnContext(ctx, "persist library path failed", logger.Err(err))
 	}
 	return nil
 }

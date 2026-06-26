@@ -7,7 +7,6 @@ import (
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 // sensitiveQueryFragments are substrings that mark a query parameter as
@@ -36,7 +35,6 @@ func redactQuery(q url.Values) map[string][]string {
 }
 
 func requestLoggerMiddleware() gin.HandlerFunc {
-	log := logger.Named("app.middleware.request")
 	return func(c *gin.Context) {
 		start := time.Now()
 
@@ -47,36 +45,34 @@ func requestLoggerMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		requestID := c.GetString("request_id")
-		if requestID == "" {
-			requestID = c.GetHeader("X-Request-ID")
-		}
-
-		username := c.GetString("username")
-		if username == "" {
-			username = c.GetHeader("X-Username")
-		}
-
-		userID, ok := c.Get("user_id")
-		if !ok {
-			userID = c.GetHeader("X-User-ID")
-		}
-
 		route := c.FullPath()
 		if route == "" {
 			route = c.Request.URL.Path
 		}
 
-		log.Info("request",
-			zap.String("route", route),
-			zap.String("method", c.Request.Method),
-			zap.Int("status", c.Writer.Status()),
-			zap.Int64("duration_ms", time.Since(start).Milliseconds()),
-			zap.Any("params", c.Params),
-			zap.Any("query", redactQuery(c.Request.URL.Query())),
-			zap.String("request_id", requestID),
-			zap.Any("user_id", userID),
-			zap.String("username", username),
-		)
+		status := c.Writer.Status()
+		// request_id and the actor (user_id / username / role) are added by the
+		// logger's context handler — the ctx was seeded by contextMiddleware /
+		// proxyAuthMiddleware — so they are not repeated here.
+		ctx := c.Request.Context()
+		args := []any{
+			"route", route,
+			"method", c.Request.Method,
+			"status", status,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"params", c.Params,
+			"query", redactQuery(c.Request.URL.Query()),
+		}
+
+		// Status-derived level: a 5xx is a server-side failure (an ERROR worth
+		// reviewing); 4xx is the client's mistake (WARN); everything else is INFO.
+		switch {
+		case status >= 500:
+			logger.Error(ctx, "request", nil, args...)
+		case status >= 400:
+			logger.Warn(ctx, "request", args...)
+		default:
+			logger.Info(ctx, "request", args...)
+		}
 	}
 }
