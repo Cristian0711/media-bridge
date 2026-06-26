@@ -14,9 +14,13 @@ import (
 type QueuePayload struct {
 	MediaID        uint   `json:"media_id"`
 	RequestEntryID uint   `json:"request_entry_id,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
 	UserID         uint   `json:"user_id"`
 	Username       string `json:"username"`
 }
+
+// CorrelationID lets the queue tag every job log with the originating request id.
+func (p QueuePayload) CorrelationID() string { return p.RequestID }
 
 // RequestStatusUpdater lets the hardlink processor mark failed requests when
 // hardlinking permanently fails. Successful hardlinks leave the request in
@@ -97,7 +101,8 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	log := logger.Component("hardlink.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
 		// Attribute this job's logs to the user who triggered it (executed by a
-		// worker, not a live request).
+		// worker, not a live request). The request_id is seeded by the queue
+		// worker (Correlatable), so it's already on ctx.
 		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.hardlink"))
 		if err := p.checkRemoveInProgress(ctx, log, job.Payload.MediaID, job.ID.String()); err != nil {
 			return err

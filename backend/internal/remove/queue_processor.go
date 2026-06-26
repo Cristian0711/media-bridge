@@ -21,6 +21,9 @@ type QueuePayload struct {
 	Username       string `json:"username"`
 }
 
+// CorrelationID lets the queue tag every job log with the originating request id.
+func (p QueuePayload) CorrelationID() string { return p.RequestID }
+
 // DownloadCanceller marks in-flight download requests for a media row as
 // cancelled before removal begins (stops the completion watcher from racing).
 type DownloadCanceller interface {
@@ -82,7 +85,8 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	log := logger.Component("remove.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
 		// Attribute this job's logs to the user who triggered it (executed by a
-		// worker, not a live request).
+		// worker, not a live request). The request_id is seeded by the queue
+		// worker (Correlatable), so it's already on ctx.
 		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.remove"))
 		req, err := p.requestSource.FindByID(ctx, job.Payload.RequestEntryID)
 		if err != nil {

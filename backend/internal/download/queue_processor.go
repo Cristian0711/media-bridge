@@ -21,6 +21,9 @@ type QueuePayload struct {
 	Username       string `json:"username"`
 }
 
+// CorrelationID lets the queue tag every job log with the originating request id.
+func (p QueuePayload) CorrelationID() string { return p.RequestID }
+
 // RequestLinker lets the download processor write the media_id back onto
 // the originating request row after the media is created, so a later remove
 // flow can find the request via the media_id.
@@ -99,7 +102,8 @@ func (p *Processor) Start(ctx context.Context, workers int) {
 	log := logger.Component("download.queue.worker")
 	handler := func(ctx context.Context, job *processingqueue.Job[QueuePayload]) error {
 		// Attribute this job's logs to the user who triggered it (executed by a
-		// worker, not a live request).
+		// worker, not a live request). The request_id is seeded by the queue
+		// worker (Correlatable), so it's already on ctx.
 		ctx = logger.WithActor(ctx, logger.UserActor(job.Payload.UserID, job.Payload.Username, "").WithExecutor("queue.download"))
 		req, err := p.requestSource.FindByID(ctx, job.Payload.RequestEntryID)
 		if err != nil {
@@ -265,6 +269,7 @@ func (p *Processor) ensureHardlinkEnqueued(
 	return p.hardlinkProcessor.Enqueue(ctx, hardlink.QueuePayload{
 		MediaID:        mediaID,
 		RequestEntryID: requestEntryID,
+		RequestID:      req.RequestID,
 		UserID:         req.UserID,
 		Username:       req.Username,
 	})

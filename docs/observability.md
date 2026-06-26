@@ -144,8 +144,14 @@ run multiple nodes.
   field** that opens the trace in Tempo.
 - **Trace → logs:** in a Tempo trace, "Logs for this span" jumps to Loki filtered
   by that trace id (tracesToLogsV2).
-- **Queue work:** a job span is a separate trace **linked** to the request; the
-  link (and the `enqueue.trace_id` attribute) connects them.
+- **Queue work:** the whole pipeline shares **one trace id**. The job span
+  *continues* the trace that enqueued it (the traceparent stored on the job row),
+  so request → requests-worker → download-worker → hardlink-worker is one trace —
+  search that trace id to see the full lifecycle and end-to-end duration.
+- **By request_id:** every log across the pipeline carries the originating
+  `request_id` (seeded into each queue job via the payload's `CorrelationID`), so
+  `{request_id="…"}` returns the request *and* all its async work (download,
+  hardlink, …) — not just the HTTP request.
 - **Who:** filter by `actor.type` / `enduser.id` / `actor.component`; HTTP traces
   also carry `cloudflare.ray` and `client.address`.
 

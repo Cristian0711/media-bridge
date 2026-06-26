@@ -17,32 +17,34 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// startJobSpan starts a span for processing one job. The job runs in its own
-// trace (it is dequeued long after the producer returned), with a LINK back to
-// the span that enqueued it — so the producer's request and this job are
-// connected without a multi-hour parent-child span. The producer's trace id is
-// also recorded as an attribute for quick correlation.
+// startJobSpan starts a span for processing one job. It CONTINUES the trace that
+// enqueued the job (extracting the stored traceparent as the parent), so the
+// whole pipeline — the originating request and every queue hop it fans out to —
+// shares one trace id end-to-end. The job span is short-lived (one attempt);
+// successive attempts/hops are sibling spans under the same trace, which is the
+// natural shape for an async pipeline.
 func (q *Queue[T]) startJobSpan(ctx context.Context, job *Job[T]) (context.Context, trace.Span) {
-	opts := []trace.SpanStartOption{
+	if job.Traceparent != "" {
+		ctx = otel.GetTextMapPropagator().Extract(
+			ctx,
+			propagation.MapCarrier{"traceparent": job.Traceparent},
+		)
+	}
+	return otel.Tracer("processing-queue").Start(ctx, "queue.process "+q.name,
 		trace.WithAttributes(
 			attribute.String("queue.name", q.name),
 			attribute.String("job.id", job.ID.String()),
 			attribute.Int("job.attempts", job.Attempts),
 		),
-	}
-	if job.Traceparent != "" {
-		producerCtx := otel.GetTextMapPropagator().Extract(
-			context.Background(),
-			propagation.MapCarrier{"traceparent": job.Traceparent},
-		)
-		if sc := trace.SpanContextFromContext(producerCtx); sc.IsValid() {
-			opts = append(opts,
-				trace.WithLinks(trace.Link{SpanContext: sc}),
-				trace.WithAttributes(attribute.String("enqueue.trace_id", sc.TraceID().String())),
-			)
-		}
-	}
-	return otel.Tracer("processing-queue").Start(ctx, "queue.process "+q.name, opts...)
+	)
+}
+
+// Correlatable lets a job payload expose a stable correlation id (the
+// originating request id). When a payload implements it, the worker tags every
+// log for that job with it, so an operation's whole pipeline is greppable by
+// request_id across queue hops.
+type Correlatable interface {
+	CorrelationID() string
 }
 
 // HandlerFunc is the function you provide to process a job.
@@ -118,10 +120,17 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 		// forever while the DB-side recovery loop requeues the row underneath
 		// it. Handlers must honour ctx for this to take effect.
 		handlerCtx, cancelHandler := context.WithTimeout(ctx, q.opts.WorkerTimeout)
-		// Start a span for this job, linked back to the request/job that enqueued
-		// it. The job runs in its own trace (it may be minutes/hours after the
-		// producer returned), and the link ties the two together.
+		// Continue the trace that enqueued this job, so the whole pipeline shares
+		// one trace id (see startJobSpan).
 		handlerCtx, span := q.startJobSpan(handlerCtx, job)
+		// Tag every log of this job — the handler's domain logs AND the generic
+		// queue logs below — with the originating request id, so the whole
+		// pipeline is greppable by request_id (not just trace_id).
+		if c, ok := any(job.Payload).(Correlatable); ok {
+			if id := c.CorrelationID(); id != "" {
+				handlerCtx = logger.WithRequestID(handlerCtx, id)
+			}
+		}
 		stopHeartbeat := q.startLeaseHeartbeat(handlerCtx, job.ID)
 		err = q.invokeHandler(handlerCtx, handler, job)
 		stopHeartbeat()
@@ -132,17 +141,16 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 		span.End()
 		cancelHandler()
 
-		// Record the terminal job state on a context detached from the worker
-		// ctx. If the worker is shutting down (ctx cancelled) or the handler
-		// ctx timed out, reusing those here would fail the write and leave the
-		// row stuck in 'processing' until recovery requeues it a full
-		// WorkerTimeout later.
-		writeCtx, cancelWrite := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		// Record the terminal job state on a context detached from cancellation
+		// (so a shutting-down worker still persists the final state) but keeping
+		// the job's values — span/trace id, request id, actor — so these logs
+		// correlate with the rest of the pipeline.
+		writeCtx, cancelWrite := context.WithTimeout(context.WithoutCancel(handlerCtx), 5*time.Second)
 
 		if err != nil {
 			permanent := errors.Is(err, ErrPermanentFailure)
 			deferRetry := errors.Is(err, ErrDeferRetry)
-			slog.WarnContext(ctx, "processingqueue: job failed",
+			slog.WarnContext(handlerCtx, "processingqueue: job failed",
 				"queue", q.name,
 				"job_id", job.ID,
 				"attempts", job.Attempts,
@@ -171,7 +179,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 			} else if rows == 0 {
 				// The row left 'processing' before we could fail it —
 				// typically a CancelByPayloadField from another flow.
-				slog.InfoContext(ctx, "processingqueue: job state changed externally before fail",
+				slog.InfoContext(handlerCtx, "processingqueue: job state changed externally before fail",
 					"queue", q.name,
 					"job_id", job.ID,
 				)
@@ -188,7 +196,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 				// flipped out from under us (cancel). Handlers can defend
 				// against firing side effects on such success by checking
 				// GetStatus before mutating related state.
-				slog.InfoContext(ctx, "processingqueue: job state changed externally before complete",
+				slog.InfoContext(handlerCtx, "processingqueue: job state changed externally before complete",
 					"queue", q.name,
 					"job_id", job.ID,
 				)
