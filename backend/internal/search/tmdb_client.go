@@ -47,8 +47,14 @@ func newTMDBClient(cfg TMDBConfig) *tmdbClient {
 		httpClient: &http.Client{
 			Timeout: 12 * time.Second,
 			// otelhttp makes each outbound call a child span (status + latency)
-			// and propagates the trace context downstream.
-			Transport: otelhttp.NewTransport(transport),
+			// and propagates the trace context downstream. Name spans by the
+			// TMDB operation (path) so traces read "tmdb GET /search/multi"
+			// rather than a generic "HTTP GET".
+			Transport: otelhttp.NewTransport(transport,
+				otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+					return "tmdb " + r.Method + " " + r.URL.Path
+				}),
+			),
 		},
 		log: logger.Component("search.tmdb"),
 	}

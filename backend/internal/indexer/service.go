@@ -10,7 +10,13 @@ import (
 	"sync"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracer for manual spans that narrate the indexer search operation.
+var tracer = otel.Tracer("media-bridge/indexer")
 
 // CatalogLister optionally lists indexers configured in Prowlarr (child indexers).
 type CatalogLister interface {
@@ -112,8 +118,12 @@ func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSea
 		"quality", req.Quality,
 		"indexers", req.Indexers)
 	items := s.searchAcrossIndexers(ctx, req, true)
-	movies := processMovieItems(ctx, items)
+	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
+		trace.WithAttributes(attribute.Int("raw_items", len(items))))
+	movies := processMovieItems(pctx, items)
 	movies = filterAndSortMovies(movies, req.Quality)
+	pspan.SetAttributes(attribute.Int("results", len(movies)))
+	pspan.End()
 	byIndexer := map[string]int{}
 	qset := map[string]bool{}
 	for _, m := range movies {
@@ -140,8 +150,12 @@ func (s *Service) SearchShows(ctx context.Context, req SearchRequest) (ShowSearc
 		"quality", req.Quality,
 		"indexers", req.Indexers)
 	items := s.searchAcrossIndexers(ctx, req, false)
-	shows := processShowItems(ctx, items)
+	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
+		trace.WithAttributes(attribute.Int("raw_items", len(items))))
+	shows := processShowItems(pctx, items)
 	parsed, unparsed := filterAndSortShows(shows, req.Season, req.Episode, req.Quality)
+	pspan.SetAttributes(attribute.Int("results", len(parsed)+len(unparsed)))
+	pspan.End()
 	all := append(append([]Show{}, parsed...), unparsed...)
 	byIndexer := map[string]int{}
 	qset := map[string]bool{}
@@ -233,19 +247,30 @@ func (s *Service) searchAcrossIndexers(ctx context.Context, req SearchRequest, m
 		wg.Add(1)
 		go func(provider Provider) {
 			defer wg.Done()
-			s.log.DebugContext(ctx, "indexer search start", "indexer", provider.GetID(), "type", searchType)
+			// One span per provider so the outbound indexer HTTP call nests under
+			// a named "indexer.provider_search" span (and parallel indexers show
+			// as sibling spans). pctx is what carries the trace into the HTTP call.
+			pctx, span := tracer.Start(ctx, "indexer.provider_search",
+				trace.WithAttributes(
+					attribute.String("indexer.id", provider.GetID()),
+					attribute.String("indexer.type", searchType),
+				))
+			defer span.End()
+			s.log.DebugContext(pctx, "indexer search start", "indexer", provider.GetID(), "type", searchType)
 			var out []IndexerItem
 			var err error
 			if movie {
-				out, err = provider.SearchMovies(ctx, req)
+				out, err = provider.SearchMovies(pctx, req)
 			} else {
-				out, err = provider.SearchShows(ctx, req)
+				out, err = provider.SearchShows(pctx, req)
 			}
 			if err != nil {
-				s.log.WarnContext(ctx, "indexer search failed", "indexer", provider.GetID(), logger.Err(err))
+				span.RecordError(err)
+				s.log.WarnContext(pctx, "indexer search failed", "indexer", provider.GetID(), logger.Err(err))
 				return
 			}
-			s.log.InfoContext(ctx, "indexer search completed",
+			span.SetAttributes(attribute.Int("indexer.results", len(out)))
+			s.log.InfoContext(pctx, "indexer search completed",
 				"indexer", provider.GetID(),
 				"type", searchType,
 				"results", len(out))

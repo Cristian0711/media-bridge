@@ -7,20 +7,12 @@ import (
 	"strings"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"github.com/Cristian0711/media-bridge/backend/shared/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// droppedParent is a valid-but-unsampled span context. Injecting it as the
-// parent makes every downstream span (e.g. gorm query spans) non-recording under
-// the parent-based sampler, so SSE poll loops don't emit a flood of orphan spans.
-var droppedParent = trace.NewSpanContext(trace.SpanContextConfig{
-	TraceID: trace.TraceID{0x01},
-	SpanID:  trace.SpanID{0x01},
-	// TraceFlags 0 → not sampled.
-})
 
 // skipTracing reports requests we never want to trace: long-lived SSE streams
 // (paths ending in /events) and the internal nginx auth-validate probe.
@@ -102,10 +94,10 @@ func contextMiddleware() gin.HandlerFunc {
 
 		ctx := logger.WithRequestID(c.Request.Context(), requestID)
 		ctx = logger.WithActor(ctx, logger.AnonymousActor())
-		// For untraced streams, plant an unsampled parent so the handler's DB
-		// poll queries don't each become an orphan root span.
+		// For untraced streams, drop descendant spans so the handler's DB poll
+		// queries don't each become an orphan root span.
 		if skipTracing(c) {
-			ctx = trace.ContextWithSpanContext(ctx, droppedParent)
+			ctx = telemetry.WithoutTracing(ctx)
 		}
 		c.Request = c.Request.WithContext(ctx)
 		annotateSpan(ctx, requestID, logger.AnonymousActor())

@@ -8,6 +8,7 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/internal/download"
 	"github.com/Cristian0711/media-bridge/backend/internal/remove"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"github.com/Cristian0711/media-bridge/backend/shared/telemetry"
 )
 
 const (
@@ -44,7 +45,7 @@ func NewReconciler(
 }
 
 func (r *Reconciler) Start(ctx context.Context) {
-	go r.run(logger.WithSystem(ctx, "requests.reconciler"))
+	go r.run(telemetry.WithoutTracing(logger.WithSystem(ctx, "requests.reconciler")))
 }
 
 func (r *Reconciler) run(ctx context.Context) {

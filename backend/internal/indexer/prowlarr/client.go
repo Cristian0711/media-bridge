@@ -35,8 +35,12 @@ func NewClient(cfg Config) *Client {
 		baseURL: base,
 		apiKey:  strings.TrimSpace(cfg.APIKey),
 		httpClient: &http.Client{
-			Timeout:   90 * time.Second,
-			Transport: otelhttp.NewTransport(http.DefaultTransport),
+			Timeout: 90 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport,
+				otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+					return "prowlarr " + r.Method + " " + r.URL.Path
+				}),
+			),
 		},
 		log: logger.Component("indexer.prowlarr"),
 	}

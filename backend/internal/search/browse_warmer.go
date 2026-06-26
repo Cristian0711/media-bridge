@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"github.com/Cristian0711/media-bridge/backend/shared/telemetry"
 )
 
 const (
@@ -25,7 +26,7 @@ func NewBrowseWarmer(svc *Service) *BrowseWarmer {
 
 // Start runs an immediate warm-up, then refreshes on browseWarmInterval.
 func (w *BrowseWarmer) Start(ctx context.Context) {
-	ctx = logger.WithSystem(ctx, "search.browse_warmer")
+	ctx = telemetry.WithoutTracing(logger.WithSystem(ctx, "search.browse_warmer"))
 	go func() {
 		log := logger.Component("search.browse_warmer")
 		log.InfoContext(ctx, "browse cache warmer started", "interval", browseWarmInterval)

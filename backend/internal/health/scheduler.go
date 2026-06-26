@@ -8,6 +8,9 @@ import (
 	"log/slog"
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -37,6 +40,8 @@ func NewScheduler(svc *Service, repo Repository) *Scheduler {
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
+	// Unlike the high-frequency pollers, the health scan is infrequent and worth
+	// a coherent trace, so its context is NOT suppressed; runOnce starts a span.
 	go s.loop(logger.WithSystem(ctx, "health.scheduler"))
 }
 
@@ -82,6 +87,11 @@ func (s *Scheduler) runOnce(ctx context.Context, log *slog.Logger) {
 		s.running = false
 		s.mu.Unlock()
 	}()
+
+	// One coherent trace per scan: the report + SaveScan DB queries nest here.
+	ctx, span := otel.Tracer("health.scheduler").Start(ctx, "health.scan",
+		trace.WithAttributes(attribute.Bool("scan.full", full)))
+	defer span.End()
 
 	start := time.Now()
 	var report Report

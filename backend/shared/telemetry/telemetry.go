@@ -29,7 +29,25 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// untracedParent is a valid-but-unsampled span context. Planting it as the
+// parent makes every child span non-recording under the parent-based sampler.
+var untracedParent = trace.NewSpanContext(trace.SpanContextConfig{
+	TraceID: trace.TraceID{0x01},
+	SpanID:  trace.SpanID{0x01},
+	// TraceFlags 0 → not sampled.
+})
+
+// WithoutTracing returns a context whose descendant spans are dropped (made
+// non-recording). Use it for routine background polling — long-lived loops with
+// no request/job parent — so their DB queries don't each surface as an orphan,
+// single-span trace. Logs under this context also omit trace ids (there is no
+// exported trace), but keep their request/actor fields.
+func WithoutTracing(ctx context.Context) context.Context {
+	return trace.ContextWithSpanContext(ctx, untracedParent)
+}
 
 // Init installs the global tracer provider and propagator. It returns a
 // shutdown function (flushes and stops the provider) that should be called on

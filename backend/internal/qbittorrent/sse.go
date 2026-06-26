@@ -6,6 +6,7 @@ import (
 
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	"github.com/Cristian0711/media-bridge/backend/shared/ssehub"
+	"github.com/Cristian0711/media-bridge/backend/shared/telemetry"
 )
 
 type EventType string
@@ -112,7 +113,7 @@ func StartTorrentMonitor(ctx context.Context, svc Service, broker *Broker, inter
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	ctx = logger.WithSystem(ctx, "qbittorrent.torrent_monitor")
+	ctx = telemetry.WithoutTracing(logger.WithSystem(ctx, "qbittorrent.torrent_monitor"))
 
 	go func() {
 		ticker := time.NewTicker(interval)

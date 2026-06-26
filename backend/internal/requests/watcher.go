@@ -9,6 +9,7 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/internal/hardlink"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"github.com/Cristian0711/media-bridge/backend/shared/telemetry"
 )
 
 // DownloadCompletionWatcher polls in-flight download requests and marks them
@@ -42,7 +43,7 @@ func NewDownloadCompletionWatcher(
 }
 
 func (w *DownloadCompletionWatcher) Start(ctx context.Context) {
-	go w.run(logger.WithSystem(ctx, "requests.download_watcher"))
+	go w.run(telemetry.WithoutTracing(logger.WithSystem(ctx, "requests.download_watcher")))
 }
 
 func (w *DownloadCompletionWatcher) run(ctx context.Context) {

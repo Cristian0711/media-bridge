@@ -71,14 +71,25 @@ When you add a new `ERROR`, **add its code to the runbook below** in the same PR
 
 ## What isn't traced (on purpose)
 
-SSE/streaming endpoints (paths ending in `/events`) and the internal nginx
-auth-validate probe are **excluded from tracing** (`skipTracing` in
-`internal/app/middleware.go`). A long-lived SSE connection would otherwise be one
-span open for the whole stream — showing in Tempo as "root span not yet received"
-— accreting a DB-poll span every tick. Those requests still log (with
-`request_id` + actor) so they remain correlatable; they just don't create spans.
-Their poll queries are suppressed via an unsampled parent context so they don't
-become orphan spans either.
+To keep Tempo to meaningful traces, some work is deliberately untraced via
+`telemetry.WithoutTracing` (an unsampled-parent context that makes descendant
+spans non-recording — so their DB queries don't surface as orphan single-span
+traces):
+
+- **SSE/streaming endpoints** (paths ending in `/events`) and the internal nginx
+  **auth-validate probe** — `skipTracing` in `internal/app/middleware.go`. A
+  long-lived stream would otherwise be one never-ending span accreting a DB-poll
+  span per tick.
+- **High-frequency background pollers** — the download-completion watcher (5s),
+  torrent monitor (2s), reconciler (2m), and browse warmer. Routine polling, not
+  worth a trace each.
+
+**Exception — the health scheduler IS traced:** the periodic scan is infrequent
+and slow enough to be worth a coherent trace, so `runOnce` opens a `health.scan`
+span (`scan.full` attribute) that its DB/consistency queries nest under.
+
+All of the above still **log** (with `request_id`/actor); untraced ones simply
+omit `trace_id` since there's no exported trace.
 
 ## How to trace (Go)
 
@@ -92,6 +103,13 @@ defer span.End()
 ```
 Pass `ctx` onward and the gorm/otelhttp instrumentation nests automatically. Don't
 manually set span status to Error — `logger.Error` does it for you.
+
+Outbound HTTP spans are named by backend+operation (e.g. `prowlarr GET
+/api/v1/search`, `tmdb GET /search/multi`) rather than a generic "HTTP GET", so a
+trace reads as the operation it performed. Add manual spans (above) at service
+seams that fan out or do multi-step work so the trace narrates the operation —
+e.g. the indexer search wraps each provider call in an `indexer.provider_search`
+span and the parse/filter in `indexer.process_results`.
 
 ## The stack (docker-compose)
 
