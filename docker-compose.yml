@@ -86,6 +86,88 @@ services:
       - "4317" # OTLP gRPC
       - "4318" # OTLP HTTP
       - "8889" # Prometheus metrics (app_log_errors_total, etc.)
+    depends_on:
+      - tempo
+    networks:
+      - backend-net
+
+  # ---------------- TRACES (Tempo) ----------------
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: media-bridge-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./otel/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    expose:
+      - "3200" # Tempo query API (Grafana)
+      - "4317" # OTLP gRPC (from the collector)
+    networks:
+      - backend-net
+
+  # ---------------- LOGS (Loki + Promtail) ----------------
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: media-bridge-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./otel/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
+    expose:
+      - "3100"
+    networks:
+      - backend-net
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: media-bridge-promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail-config.yaml"]
+    volumes:
+      - ./otel/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - backend-net
+
+  # ---------------- METRICS (Prometheus) ----------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: media-bridge-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./otel/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    networks:
+      - backend-net
+
+  # ---------------- GRAFANA ----------------
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: media-bridge-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./otel/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./otel/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
     networks:
       - backend-net
 
@@ -123,6 +205,10 @@ services:
 
 volumes:
   postgres_data:
+  tempo_data:
+  loki_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   backend-net:

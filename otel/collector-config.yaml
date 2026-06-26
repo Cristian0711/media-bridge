@@ -65,23 +65,19 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
 
-  # --- Uncomment and configure your trace backend, then add to the pipeline ---
-  # otlp/tempo:
-  #   endpoint: tempo:4317
-  #   tls:
-  #     insecure: true
-  # otlp/jaeger:
-  #   endpoint: jaeger:4317
-  #   tls:
-  #     insecure: true
+  # Traces → Grafana Tempo.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [tail_sampling, batch]
-      # spanmetrics consumes spans to generate RED metrics; add otlp/tempo here too.
-      exporters: [debug, spanmetrics]
+      # spanmetrics consumes spans to generate RED metrics; otlp/tempo stores them.
+      exporters: [otlp/tempo, spanmetrics, debug]
     metrics:
       # otlp = app metrics (app_log_errors_total); spanmetrics = trace-derived RED.
       receivers: [otlp, spanmetrics]

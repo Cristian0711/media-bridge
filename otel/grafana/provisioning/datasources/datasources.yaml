@@ -1,0 +1,42 @@
+# Grafana datasources (auto-provisioned). Note: Grafana interpolates ${VAR} in
+# provisioning files as env vars, so the derived-field template uses $$ to escape
+# to a literal ${__value.raw}.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Span → logs: jump from a trace to its log lines in Loki, filtered by trace id.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+      # Service map / RED from spanmetrics in Prometheus.
+      serviceMap:
+        datasourceUid: prometheus
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # Log → trace: turn the trace_id in each JSON log line into a clickable link
+      # that opens the trace in Tempo.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: '$${__value.raw}'
+          datasourceUid: tempo

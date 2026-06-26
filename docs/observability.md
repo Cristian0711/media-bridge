@@ -82,14 +82,35 @@ defer span.End()
 Pass `ctx` onward and the gorm/otelhttp instrumentation nests automatically. Don't
 manually set span status to Error — `logger.Error` does it for you.
 
-## Reading it
+## The stack (docker-compose)
 
-- **Log → trace:** copy the `trace_id` from a log line; open it in your trace
-  backend.
-- **Trace → logs:** filter logs by that `trace_id` (and `span_id`).
+`docker compose up -d` brings up the full observability stack alongside the app:
+
+| Service | Port | Role |
+|---------|------|------|
+| otel-collector | 4317/4318, 8889 | receives OTLP from the backend; tail-samples traces → Tempo; spanmetrics + `app_log_errors_total` → Prometheus (`:8889`) |
+| tempo | 3200 | trace storage |
+| loki | 3100 | log storage |
+| promtail | — | scrapes container stdout (JSON logs) → Loki |
+| prometheus | 9090 | scrapes the collector; evaluates `otel/prometheus-alerts.yml` |
+| grafana | **3000** | UI — datasources auto-provisioned (admin/admin by default; override `GRAFANA_ADMIN_PASSWORD`) |
+
+Open **Grafana at http://localhost:3000** → Explore:
+- **Traces:** pick the *Tempo* datasource (search by service / trace id / duration).
+- **Logs:** pick the *Loki* datasource (e.g. `{level="ERROR"}`, `{container="media-bridge-api"}`).
+- A provisioned **"Media Bridge — Observability"** dashboard shows errors-by-code,
+  request error %, and recent ERROR logs.
+
+## Reading it (with correlation wired in Grafana)
+
+- **Log → trace:** in a Loki log line, the `trace_id` is a clickable **derived
+  field** that opens the trace in Tempo.
+- **Trace → logs:** in a Tempo trace, "Logs for this span" jumps to Loki filtered
+  by that trace id (tracesToLogsV2).
 - **Queue work:** a job span is a separate trace **linked** to the request; the
   link (and the `enqueue.trace_id` attribute) connects them.
-- **Who:** filter by `actor.type` / `enduser.id` / `actor.component`.
+- **Who:** filter by `actor.type` / `enduser.id` / `actor.component`; HTTP traces
+  also carry `cloudflare.ray` and `client.address`.
 
 ## error.code runbook
 
