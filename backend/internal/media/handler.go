@@ -106,14 +106,11 @@ func userIDFromContext(c *gin.Context) (uint, bool) {
 	return userID, true
 }
 
+// parsePaginationParams parses page/page_size from the query. Range clamping is
+// left to the service layer (pagination.Normalize), so the cap is defined in one
+// place rather than silently differing here.
 func parsePaginationParams(c *gin.Context) (int, int) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 20 {
-		pageSize = 20
-	}
 	return page, pageSize
 }

@@ -2,12 +2,14 @@ package media
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
 	"github.com/Cristian0711/media-bridge/backend/shared/logger"
+	"github.com/Cristian0711/media-bridge/backend/shared/pagination"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -183,7 +185,7 @@ func (s *service) GetMediaForUserPaginated(ctx context.Context, userID uint, pag
 func (s *service) GetMediaByID(ctx context.Context, id uint) (*Media, error) {
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMediaNotFound
 		}
 		return nil, err
@@ -327,7 +329,7 @@ func (s *service) removeMedia(
 	}
 	mediaRow, err := s.repo.FindByID(ctx, mediaID)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Info(kind+" remove skipped: media not found", zap.Uint("media_id", mediaID))
 			return nil
 		}
@@ -371,18 +373,9 @@ func paginatedResponse(rows []Media, total, totalSize int64, page, pageSize int)
 }
 
 func normalizePagination(page, pageSize int) (int, int) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	return page, pageSize
+	return pagination.Normalize(page, pageSize)
 }
 
 func calcTotalPages(total int64, pageSize int) int {
-	if total <= 0 {
-		return 0
-	}
-	return int((total + int64(pageSize) - 1) / int64(pageSize))
+	return pagination.TotalPages(total, pageSize)
 }

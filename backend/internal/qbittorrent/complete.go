@@ -22,12 +22,6 @@ var activeDownloadStates = map[string]struct{}{
 	"checkingresume": {},
 }
 
-// DownloadComplete reports whether torrent-level progress indicates a finished download.
-// Deprecated: prefer TorrentTransferComplete for finalize decisions.
-func DownloadComplete(progress float64) bool {
-	return progress >= progressCompleteThreshold
-}
-
 // TorrentTransferComplete is true when qBittorrent reports full progress and the
 // torrent is no longer in an active download/prepare state.
 func TorrentTransferComplete(t Torrent) bool {

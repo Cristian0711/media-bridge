@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/requests"
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,8 @@ func TestMovieRemoveHandler(t *testing.T) {
 	}{
 		{name: "ok", wantStatus: http.StatusAccepted},
 		{name: "service error", svcErr: errors.New("boom"), wantStatus: http.StatusInternalServerError},
+		{name: "media not found", svcErr: media.ErrMediaNotFound, wantStatus: http.StatusNotFound},
+		{name: "wrong media type", svcErr: requests.ErrInvalidMediaType, wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {

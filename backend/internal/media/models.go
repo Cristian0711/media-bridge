@@ -1,7 +1,6 @@
 package media
 
 import (
-	"strconv"
 	"time"
 )
 
@@ -82,19 +81,6 @@ type ShowEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// GetMediaIdentifier returns a unique identifier for the media.
-func (m *Media) GetMediaIdentifier() string {
-	if m.Type == MediaTypeMovie && m.Movie != nil {
-		if m.Movie.IMDBID != "" {
-			return "movie:" + m.Movie.IMDBID
-		}
-		if m.Movie.TMDBID != "" {
-			return "movie:tmdb:" + m.Movie.TMDBID
-		}
-	}
-	return ""
-}
-
 // GetShowEntryType returns the type of show entry.
 func (se *ShowEntry) GetShowEntryType() MediaType {
 	if se.Season == nil && se.Episode == nil {
@@ -104,18 +90,4 @@ func (se *ShowEntry) GetShowEntryType() MediaType {
 		return MediaTypeShowSeason
 	}
 	return MediaTypeShowEpisode
-}
-
-// GetIdentifier returns a unique identifier for the show entry.
-func (se *ShowEntry) GetIdentifier() string {
-	entryType := se.GetShowEntryType()
-	switch entryType {
-	case MediaTypeShowFull:
-		return "show_full"
-	case MediaTypeShowSeason:
-		return "show_season:" + strconv.Itoa(*se.Season)
-	case MediaTypeShowEpisode:
-		return "show_episode:" + strconv.Itoa(*se.Season) + ":" + strconv.Itoa(*se.Episode)
-	}
-	return ""
 }

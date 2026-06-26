@@ -38,6 +38,11 @@ const (
 var (
 	DownloadTypes = []string{TypeMovieDownload, TypeShowDownload}
 	RemoveTypes   = []string{TypeMovieRemove, TypeShowRemove}
+	// AllRequestTypes is every pipeline request type (download + remove).
+	AllRequestTypes = []string{TypeMovieDownload, TypeShowDownload, TypeMovieRemove, TypeShowRemove}
+	// MediaQueues are the processing queues whose payloads carry a media_id
+	// (used by health checks to find in-flight media work).
+	MediaQueues = []string{QueueHardlink, QueueRemove, QueueDownload}
 )
 
 func IsDownloadType(t string) bool {

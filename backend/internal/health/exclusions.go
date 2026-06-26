@@ -72,12 +72,12 @@ func collectExclusions(ctx context.Context, db *gorm.DB, mediaSvc media.Service)
 	queueSQL := `
 		SELECT DISTINCT (payload->>'media_id')::bigint AS media_id
 		FROM processing_queue
-		WHERE queue_name IN ('hardlink_processing_queue', 'remove_processing_queue', 'download_processing_queue')
+		WHERE queue_name IN ?
 		  AND status IN ('pending', 'processing')
 		  AND (payload->>'media_id') IS NOT NULL
 		  AND (payload->>'media_id')::bigint > 0
 	`
-	if err := db.WithContext(ctx).Raw(queueSQL).Scan(&queueMediaIDs).Error; err != nil {
+	if err := db.WithContext(ctx).Raw(queueSQL, pipeline.MediaQueues).Scan(&queueMediaIDs).Error; err != nil {
 		return out, err
 	}
 

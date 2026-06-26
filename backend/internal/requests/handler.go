@@ -56,10 +56,24 @@ func handlePost[T any](
 	userID, username, requestID := requestMeta(c)
 	resp, err := call(c.Request.Context(), body, userID, username, requestID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		writePostError(c, err)
 		return
 	}
 	c.JSON(http.StatusAccepted, resp)
+}
+
+// writePostError maps service errors to the right HTTP status: 404 for a
+// missing media row, 400 for client validation errors (wrong media type), and
+// 500 for everything else (which stays opaque to the client).
+func writePostError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, media.ErrMediaNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
+	case errors.Is(err, ErrInvalidMediaType):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+	}
 }
 
 func (h *Handler) MovieDownload(c *gin.Context) { handlePost(c, h.svc.RequestMovieDownload) }

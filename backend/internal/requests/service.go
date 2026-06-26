@@ -8,8 +8,14 @@ import (
 	"github.com/Cristian0711/media-bridge/backend/internal/hardlink"
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
+	"github.com/Cristian0711/media-bridge/backend/shared/pagination"
 	"gorm.io/gorm"
 )
+
+// ErrInvalidMediaType is returned when a remove targets a media row whose kind
+// does not match the endpoint (e.g. a show remove on a movie row). It is a
+// client error (400), distinct from media.ErrMediaNotFound (404).
+var ErrInvalidMediaType = errors.New("media is not the expected type")
 
 type Service interface {
 	RequestMovieDownload(ctx context.Context, req MovieDownloadRequestBody, userID uint, username, requestID string) (*RequestAck, error)
@@ -122,7 +128,7 @@ func (s *service) RequestMovieRemove(ctx context.Context, req MovieRemoveRequest
 		return nil, err
 	}
 	if mediaRow.Movie == nil {
-		return nil, fmt.Errorf("media %d is not a movie", req.MediaID)
+		return nil, fmt.Errorf("media %d is not a movie: %w", req.MediaID, ErrInvalidMediaType)
 	}
 	movie := mediaRow.Movie
 
@@ -157,7 +163,7 @@ func (s *service) RequestShowRemove(ctx context.Context, req ShowRemoveRequestBo
 		return nil, err
 	}
 	if mediaRow.ShowEntry == nil || mediaRow.ShowEntry.Show == nil {
-		return nil, fmt.Errorf("media %d is not a show entry", req.MediaID)
+		return nil, fmt.Errorf("media %d is not a show entry: %w", req.MediaID, ErrInvalidMediaType)
 	}
 	showEntry := mediaRow.ShowEntry
 	show := showEntry.Show
@@ -337,18 +343,9 @@ func derefInt(i *int) int {
 }
 
 func normalizePagination(page, pageSize int) (int, int) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	return page, pageSize
+	return pagination.Normalize(page, pageSize)
 }
 
 func calcTotalPages(total int64, pageSize int) int {
-	if total <= 0 {
-		return 0
-	}
-	return int((total + int64(pageSize) - 1) / int64(pageSize))
+	return pagination.TotalPages(total, pageSize)
 }

@@ -41,20 +41,6 @@ func TestTorrentTransferComplete(t *testing.T) {
 	}
 }
 
-func TestDownloadComplete(t *testing.T) {
-	t.Parallel()
-
-	if qbit.DownloadComplete(0.998) {
-		t.Fatal("expected 0.998 to be incomplete")
-	}
-	if !qbit.DownloadComplete(0.999) {
-		t.Fatal("expected 0.999 to be complete")
-	}
-	if !qbit.DownloadComplete(1.0) {
-		t.Fatal("expected 1.0 to be complete")
-	}
-}
-
 func TestFileDownloadComplete(t *testing.T) {
 	t.Parallel()
 

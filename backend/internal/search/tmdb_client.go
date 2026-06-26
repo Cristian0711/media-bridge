@@ -127,7 +127,7 @@ func (c *tmdbClient) get(ctx context.Context, path string, dest any) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.log.Error("tmdb request failed", zap.String("url", u), zap.Error(err))
-		return err
+		return fmt.Errorf("tmdb request %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

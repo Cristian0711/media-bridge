@@ -12,7 +12,7 @@ import (
 func torrentHasRootFolder(fileBytes []byte) (bool, error) {
 	torrent, err := gotorrentparser.Parse(bytes.NewReader(fileBytes))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("parse torrent file: %w", err)
 	}
 	if len(torrent.Files) == 0 {
 		return false, fmt.Errorf("torrent has no files")

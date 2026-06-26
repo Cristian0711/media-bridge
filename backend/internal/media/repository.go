@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 )
@@ -272,7 +273,7 @@ func (r *repository) FindShowByExternalIDOrName(ctx context.Context, imdbID, tvd
 
 	var show Show
 	if err := query.First(&show).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err

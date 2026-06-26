@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Cristian0711/media-bridge/backend/internal/pipeline"
 	"gorm.io/gorm"
 )
 
@@ -75,9 +76,9 @@ func checkPipeline(ctx context.Context, db *gorm.DB) Check {
 	err := db.WithContext(ctx).Raw(`
 		SELECT status, COUNT(*)::bigint AS count
 		FROM requests
-		WHERE type IN ('movie_download', 'show_download', 'movie_remove', 'show_remove')
+		WHERE type IN ?
 		GROUP BY status
-	`).Scan(&rows).Error
+	`, pipeline.AllRequestTypes).Scan(&rows).Error
 	if err != nil {
 		return Check{
 			ID: "request_pipeline", Name: "Request pipeline", Status: CheckFail,
