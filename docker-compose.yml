@@ -37,6 +37,18 @@ services:
       PORT: ${PORT:-8080}
       TMDB_URL: ${TMDB_URL:-https://api.themoviedb.org/3}
       TMDB_API_KEY: ${TMDB_API_KEY}
+      # --- Observability (traces) ---
+      # Export OTLP/gRPC to the collector. Set OTEL_TRACES_EXPORTER=none to disable.
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      # Head-sample everything; the collector tail-samples (keeps all errors).
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production,service.namespace=media-bridge}
+      APP_VERSION: ${APP_VERSION:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -56,6 +68,24 @@ services:
       - backend
     ports:
       - "80:80"
+    networks:
+      - backend-net
+
+  # ---------------- OPENTELEMETRY COLLECTOR ----------------
+  # Vendor-neutral telemetry sink. Receives OTLP from the backend and routes it
+  # to your trace backend (see otel/collector-config.yaml). Swap backends there
+  # with no app changes.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: media-bridge-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    expose:
+      - "4317" # OTLP gRPC
+      - "4318" # OTLP HTTP
+      - "8889" # Prometheus metrics (app_log_errors_total, etc.)
     networks:
       - backend-net
 

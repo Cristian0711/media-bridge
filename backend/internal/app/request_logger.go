@@ -63,12 +63,20 @@ func requestLoggerMiddleware() gin.HandlerFunc {
 			"params", c.Params,
 			"query", redactQuery(c.Request.URL.Query()),
 		}
+		// Cloudflare correlation: cf_ray joins this line to Cloudflare's logs;
+		// client_ip is the real client (CF-Connecting-IP), not the tunnel.
+		if ip := c.GetString("client_ip"); ip != "" {
+			args = append(args, "client_ip", ip)
+		}
+		if ray := c.GetString("cf_ray"); ray != "" {
+			args = append(args, "cf_ray", ray)
+		}
 
 		// Status-derived level: a 5xx is a server-side failure (an ERROR worth
 		// reviewing); 4xx is the client's mistake (WARN); everything else is INFO.
 		switch {
 		case status >= 500:
-			logger.Error(ctx, "request", nil, args...)
+			logger.Error(ctx, "http.server_error", "request", nil, args...)
 		case status >= 400:
 			logger.Warn(ctx, "request", args...)
 		default:

@@ -97,6 +97,33 @@ func TestNoActorNoEnrichment(t *testing.T) {
 	}
 }
 
+func TestErrorStampsCode(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slogLogger
+	slogLogger = newCaptureLogger(&buf)
+	defer func() { slogLogger = prev }()
+
+	Error(context.Background(), "queue.dequeue_failed", "boom", errSentinel{}, "queue", "downloads")
+
+	m := decode(t, &buf)
+	if m["code"] != "queue.dequeue_failed" {
+		t.Errorf("code = %v, want queue.dequeue_failed", m["code"])
+	}
+	if m["error"] != "sentinel" {
+		t.Errorf("error = %v, want sentinel", m["error"])
+	}
+	if m["queue"] != "downloads" {
+		t.Errorf("queue = %v, want downloads", m["queue"])
+	}
+	if m["level"] != "ERROR" {
+		t.Errorf("level = %v, want ERROR", m["level"])
+	}
+}
+
+type errSentinel struct{}
+
+func (errSentinel) Error() string { return "sentinel" }
+
 func TestContextHandlerStampsTraceIDs(t *testing.T) {
 	var buf bytes.Buffer
 	log := newCaptureLogger(&buf)

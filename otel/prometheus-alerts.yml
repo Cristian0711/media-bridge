@@ -1,0 +1,59 @@
+# Prometheus alerting rules for media-bridge.
+#
+# Point a Prometheus at the collector's exporter (otel-collector:8889) and load
+# this file (rule_files:). These rules make "an ERROR must be reviewed" real:
+# the ERROR-log counter is alertable and grouped by error.code.
+#
+# Metric sources:
+#   - app_log_errors_total{code}          → OTel counter (app.log.errors)
+#   - calls_total / duration_*            → collector spanmetrics connector
+#     (NOTE: depending on the collector version the span metrics may be named
+#      traces_span_metrics_calls_total / ..._duration_milliseconds — adjust the
+#      expressions below to match `curl otel-collector:8889/metrics`.)
+
+groups:
+  - name: media-bridge-errors
+    rules:
+      # Sustained ERROR logs for any code → page. Because Phase 2 made ERROR
+      # trustworthy (transient/expected conditions are WARN/Debug), a steady
+      # ERROR stream means something genuinely needs review.
+      - alert: BackendErrorLogsSustained
+        expr: sum by (code) (rate(app_log_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Sustained backend ERROR logs (code={{ $labels.code }})"
+          description: >
+            error.code={{ $labels.code }} has been logging errors for 5m+.
+            See the runbook in docs/observability.md for what this code means
+            and where to look. Jump to a trace via the trace_id on any matching
+            log line.
+
+      # A burst of errors (any code) in a short window → ticket, even if not
+      # sustained. Tune the threshold to your volume.
+      - alert: BackendErrorBurst
+        expr: sum by (code) (increase(app_log_errors_total[10m])) > 10
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Burst of backend errors (code={{ $labels.code }})"
+          description: "{{ $value | humanize }} errors for code={{ $labels.code }} in 10m."
+
+  - name: media-bridge-red
+    rules:
+      # >5% of HTTP request spans erroring over 10m. Uses spanmetrics; rename the
+      # metric if your collector namespaces it (see note at top).
+      - alert: HighRequestErrorRate
+        expr: |
+          sum(rate(calls_total{status_code="STATUS_CODE_ERROR"}[5m]))
+            /
+          clamp_min(sum(rate(calls_total[5m])), 1)
+            > 0.05
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "High backend error-span rate (>5% over 10m)"
+          description: "More than 5% of spans are erroring. Check the error traces (always retained by tail-sampling)."

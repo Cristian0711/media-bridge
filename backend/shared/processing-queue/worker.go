@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/Cristian0711/media-bridge/backend/shared/logger"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -98,10 +99,9 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 
 		job, err := q.Dequeue(ctx, workerID)
 		if err != nil {
-			slog.ErrorContext(ctx, "processingqueue: dequeue error",
+			logger.Error(ctx, "queue.dequeue_failed", "processingqueue: dequeue error", err,
 				"queue", q.name,
 				"worker", workerID,
-				"error", err,
 			)
 			q.wait(ctx)
 			continue
@@ -164,10 +164,9 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 				rows, failErr = q.Fail(writeCtx, job.ID, err)
 			}
 			if failErr != nil {
-				slog.ErrorContext(ctx, "processingqueue: could not record failure",
+				logger.Error(writeCtx, "queue.fail_record_failed", "processingqueue: could not record failure", failErr,
 					"queue", q.name,
 					"job_id", job.ID,
-					"error", failErr,
 				)
 			} else if rows == 0 {
 				// The row left 'processing' before we could fail it —
@@ -180,10 +179,9 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 		} else {
 			rows, completeErr := q.Complete(writeCtx, job.ID)
 			if completeErr != nil {
-				slog.ErrorContext(ctx, "processingqueue: could not mark completed",
+				logger.Error(writeCtx, "queue.complete_failed", "processingqueue: could not mark completed", completeErr,
 					"queue", q.name,
 					"job_id", job.ID,
-					"error", completeErr,
 				)
 			} else if rows == 0 {
 				// Same as above — handler returned nil but the row was
@@ -208,7 +206,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 func (q *Queue[T]) invokeHandler(ctx context.Context, handler HandlerFunc[T], job *Job[T]) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.ErrorContext(ctx, "processingqueue: handler panic recovered",
+			logger.Error(ctx, "queue.handler_panic", "processingqueue: handler panic recovered", nil,
 				"queue", q.name,
 				"job_id", job.ID,
 				"panic", fmt.Sprint(r),
@@ -231,9 +229,8 @@ func (q *Queue[T]) runRecovery(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := q.recoverStale(ctx); err != nil {
-				slog.ErrorContext(ctx, "processingqueue: recovery error",
+				logger.Error(ctx, "queue.recovery_failed", "processingqueue: recovery error", err,
 					"queue", q.name,
-					"error", err,
 				)
 			}
 		}

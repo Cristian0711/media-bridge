@@ -28,13 +28,13 @@ func main() {
 
 	tpShutdown, err := telemetry.Init(ctx, "media-bridge-backend", appVersion())
 	if err != nil {
-		log.ErrorContext(ctx, "telemetry init failed", logger.Err(err))
+		logger.Error(ctx, "app.telemetry_init_failed", "telemetry init failed", err)
 		os.Exit(1)
 	}
 
 	srv, err := app.Bootstrap()
 	if err != nil {
-		log.ErrorContext(ctx, "bootstrap failed", logger.Err(err))
+		logger.Error(ctx, "app.bootstrap_failed", "bootstrap failed", err)
 		os.Exit(1)
 	}
 
@@ -54,7 +54,7 @@ func main() {
 
 	select {
 	case err := <-srvErr:
-		log.ErrorContext(ctx, "server failed, draining", logger.Err(err))
+		logger.Error(ctx, "app.server_failed", "server failed, draining", err)
 	case s := <-sig:
 		log.InfoContext(ctx, "shutdown signal received, draining", "signal", s.String())
 	}
@@ -62,11 +62,11 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.ErrorContext(ctx, "graceful shutdown failed", logger.Err(err))
+		logger.Error(ctx, "app.shutdown_failed", "graceful shutdown failed", err)
 	}
 	// Flush any buffered spans last, after workers have stopped producing them.
 	if err := tpShutdown(shutdownCtx); err != nil {
-		log.ErrorContext(ctx, "telemetry shutdown failed", logger.Err(err))
+		logger.Error(ctx, "app.telemetry_shutdown_failed", "telemetry shutdown failed", err)
 	}
 	log.InfoContext(ctx, "shutdown complete")
 }

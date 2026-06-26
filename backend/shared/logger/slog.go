@@ -5,7 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -137,6 +142,11 @@ func (h contextHandler) Handle(ctx context.Context, rec slog.Record) error {
 			slog.String("span_id", sc.SpanID().String()),
 		)
 	}
+	// Every ERROR is a reviewable signal: count it (by error.code) and mark its
+	// span failed, so an error log lights up its trace and feeds alerting.
+	if rec.Level >= slog.LevelError {
+		recordError(ctx, rec)
+	}
 	return h.inner.Handle(ctx, rec)
 }
 
@@ -192,20 +202,61 @@ func Info(ctx context.Context, msg string, args ...any)  { slogLogger.InfoContex
 func Warn(ctx context.Context, msg string, args ...any)  { slogLogger.WarnContext(ctx, msg, args...) }
 func Debug(ctx context.Context, msg string, args ...any) { slogLogger.DebugContext(ctx, msg, args...) }
 
-// Error logs at error level with a standardized "error" attribute. Per the
-// severity policy, reserve this for unexpected, actionable failures.
-func Error(ctx context.Context, msg string, err error, args ...any) {
+// Error logs at error level. Per the severity policy this is reserved for
+// unexpected, actionable failures, so it requires a stable error.code (e.g.
+// "queue.dequeue_failed") — the grouping key for alerting and dashboards. The
+// code and a standardized "error" attribute are attached automatically.
+func Error(ctx context.Context, code, msg string, err error, args ...any) {
+	all := make([]any, 0, len(args)+4)
+	all = append(all, "code", code)
 	if err != nil {
-		args = append(args, "error", err.Error())
+		all = append(all, "error", err.Error())
 	}
-	slogLogger.ErrorContext(ctx, msg, args...)
+	all = append(all, args...)
+	slogLogger.ErrorContext(ctx, msg, all...)
 }
 
 // Err renders an error as a standardized "error" attribute (nil-safe), for use
-// directly in slog argument lists: log.ErrorContext(ctx, "msg", logger.Err(err)).
+// directly in slog argument lists at non-error levels:
+// log.WarnContext(ctx, "msg", logger.Err(err)).
 func Err(err error) slog.Attr {
 	if err == nil {
 		return slog.String("error", "")
 	}
 	return slog.String("error", err.Error())
+}
+
+var (
+	errCounterOnce sync.Once
+	errCounter     metric.Int64Counter
+)
+
+func errorCounter() metric.Int64Counter {
+	errCounterOnce.Do(func() {
+		errCounter, _ = otel.Meter("media-bridge/logger").Int64Counter(
+			"app.log.errors",
+			metric.WithDescription("Count of ERROR-level log records, labeled by error.code"),
+		)
+	})
+	return errCounter
+}
+
+// recordError increments the error counter (keyed by error.code) and marks the
+// active span as failed. Runs for every ERROR-level record, regardless of how it
+// was logged.
+func recordError(ctx context.Context, rec slog.Record) {
+	code := "unspecified"
+	rec.Attrs(func(a slog.Attr) bool {
+		if a.Key == "code" {
+			code = a.Value.String()
+			return false
+		}
+		return true
+	})
+	if c := errorCounter(); c != nil {
+		c.Add(ctx, 1, metric.WithAttributes(attribute.String("code", code)))
+	}
+	if span := trace.SpanFromContext(ctx); span.IsRecording() {
+		span.SetStatus(codes.Error, rec.Message)
+	}
 }

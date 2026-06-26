@@ -1,10 +1,47 @@
 local cjson = require "cjson.safe"
 local http = require "resty.http"
+local resty_random = require "resty.random"
+local resty_str = require "resty.string"
 
 local _M = {}
 
 local COOKIE_NAME = "auth_token"
 local CACHE_TTL = 60
+
+-- A well-formed W3C traceparent is 55 chars: "00-" + 32 hex (trace id) + "-" +
+-- 16 hex (span id) + "-" + 2 hex (flags).
+local TRACEPARENT_RE = "^00%-%x+%-%x+%-%x%x$"
+
+-- ensure_traceparent returns the W3C traceparent for this request and sets it as
+-- a request header so it is forwarded to the backend (which continues the trace).
+-- nginx does not record its own span in this lightweight mode; the value gives
+-- one trace id from the edge through the backend and into its logs.
+--
+-- Trust boundary: an inbound traceparent is only honored when the request
+-- arrived through Cloudflare (cf-ray present) — otherwise any public client
+-- could pin arbitrary trace ids (spoofing / cardinality attacks). All traffic
+-- here is tunneled via Cloudflare, so a missing cf-ray means a client-supplied
+-- traceparent is untrusted and we mint a fresh one. (For stronger assurance,
+-- gate on a verified Cloudflare Access JWT instead of cf-ray presence.)
+function _M.ensure_traceparent()
+    local headers = ngx.req.get_headers()
+    local tp = headers["traceparent"]
+    local via_cloudflare = headers["cf-ray"] ~= nil
+
+    if not (via_cloudflare and type(tp) == "string" and #tp == 55 and tp:match(TRACEPARENT_RE)) then
+        local trace_bytes = resty_random.bytes(16)
+        local span_bytes = resty_random.bytes(8)
+        if trace_bytes and span_bytes then
+            tp = "00-" .. resty_str.to_hex(trace_bytes) .. "-" .. resty_str.to_hex(span_bytes) .. "-01"
+        else
+            tp = nil
+        end
+    end
+    if tp then
+        ngx.req.set_header("traceparent", tp)
+    end
+    return tp
+end
 
 function _M.extract_token()
     local auth_header = ngx.req.get_headers()["Authorization"]
@@ -26,7 +63,7 @@ function _M.extract_token()
     return nil
 end
 
-function _M.validate_token(token, request_id)
+function _M.validate_token(token, request_id, traceparent)
     local cache = ngx.shared.token_cache
     local cached = cache:get(token)
     if cached then
@@ -36,15 +73,22 @@ function _M.validate_token(token, request_id)
         end
     end
 
+    local headers = {
+        ["Authorization"] = "Bearer " .. token,
+        ["X-Request-ID"] = request_id,
+        ["X-Internal-Auth-Check"] = "1",
+    }
+    -- Propagate the trace so the auth-validate call is part of the request's
+    -- trace rather than an orphan.
+    if traceparent and traceparent ~= "" then
+        headers["traceparent"] = traceparent
+    end
+
     local httpc = http.new()
     httpc:set_timeout(3000)
     local res, err = httpc:request_uri("http://backend:8080/api/v1/auth/validate", {
         method = "GET",
-        headers = {
-            ["Authorization"] = "Bearer " .. token,
-            ["X-Request-ID"] = request_id,
-            ["X-Internal-Auth-Check"] = "1",
-        },
+        headers = headers,
         keepalive_timeout = 60000,
         keepalive_pool = 64,
     })

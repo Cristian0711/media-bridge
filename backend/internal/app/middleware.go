@@ -12,6 +12,36 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// annotateEdge records Cloudflare correlation on the active span and stashes it
+// on the gin context for the request log. The tunnel means `$remote_addr` is
+// just cloudflared, so the real client IP comes from CF-Connecting-IP; CF-Ray is
+// the join key to Cloudflare's own logs (Logpush).
+func annotateEdge(c *gin.Context) {
+	clientIP := c.GetHeader("CF-Connecting-IP")
+	if clientIP == "" {
+		clientIP = c.ClientIP()
+	}
+	c.Set("client_ip", clientIP)
+
+	ray := c.GetHeader("CF-Ray")
+	if ray != "" {
+		c.Set("cf_ray", ray)
+	}
+
+	span := trace.SpanFromContext(c.Request.Context())
+	if !span.IsRecording() {
+		return
+	}
+	attrs := []attribute.KeyValue{attribute.String("client.address", clientIP)}
+	if ray != "" {
+		attrs = append(attrs, attribute.String("cloudflare.ray", ray))
+	}
+	if country := c.GetHeader("CF-IPCountry"); country != "" {
+		attrs = append(attrs, attribute.String("cloudflare.ip_country", country))
+	}
+	span.SetAttributes(attrs...)
+}
+
 // annotateSpan copies the request id and actor onto the active span, so a trace
 // is attributable to a person (or marked system/anonymous) the same way the
 // logs are.
@@ -55,6 +85,7 @@ func contextMiddleware() gin.HandlerFunc {
 		ctx = logger.WithActor(ctx, logger.AnonymousActor())
 		c.Request = c.Request.WithContext(ctx)
 		annotateSpan(ctx, requestID, logger.AnonymousActor())
+		annotateEdge(c)
 
 		c.Next()
 	}

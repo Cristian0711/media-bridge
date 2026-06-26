@@ -21,7 +21,7 @@ that breaks builds.
 | Tracing | None (no OTel deps) | No way to see a request flow across HTTP → queue → qBittorrent → DB; no latency attribution |
 | Severity | ~33 `Error`, ~41 `Warn`, ~59 `Info`, ~17 `Debug`, 1 `Fatal`. Request logger logs **every** request at `Info`, including 4xx/5xx | `ERROR` is not trustworthy as an alert signal; expected conditions and client mistakes are mixed in with real failures |
 | Error flow | Errors wrapped with `%w` (after Phase 5) but logging-vs-returning is inconsistent — some errors logged at every layer | Double/triple logging of the same failure; noise |
-| Edge (nginx) | Generates/forwards `X-Request-ID` only (`nginx/nginx.conf:64`); makes a `/auth/validate` sub-request per request; **no `traceparent`, no OTel** | The real entry point emits no trace context, so a trace can't start at the edge until nginx is instrumented (Phase 3.0) |
+| Edge (nginx) | Generates/forwards `X-Request-ID` only (`nginx/nginx.conf:64`); makes a `/auth/validate` sub-request per request; **no `traceparent`, no OTel** | The real entry point emits no trace context, so a trace can't start at the edge until nginx is instrumented (Phase 3.0). **DONE (lighter option):** `auth.lua` now generates/continues a W3C `traceparent` and forwards it to the backend + the validate sub-request; the backend continues it via otelgin. (No nginx span yet — that needs the OpenResty OTel module.) |
 
 **Foundations we already have:** `context.Context` is threaded through nearly
 every service/repo/worker signature, and an `X-Request-ID` exists at the HTTP
@@ -390,16 +390,80 @@ heart of the request.
 
 ---
 
+## Phase 7 — Make the true edge the root: nginx span + Cloudflare tunnel
+
+The real request path is **Client → Cloudflare → cloudflared tunnel → nginx →
+backend** (the tunnel is already in `docker-compose.yml`). Phase 3.0 made nginx
+*originate* a `traceparent` (lighter option) but it records no span, so the
+backend's gin span is the visible root with a "remote parent" that points at
+nothing local. Phase 7 turns the infra edge into real, visible spans so a trace
+reads top-down from where the request actually entered.
+
+### 7.1 nginx as a real span (not just a traceparent emitter) — ☐ TODO (recipe)
+Not implemented yet: it changes the nginx image and can't be verified without
+building/running it, so it should be applied and tested in the deploy
+environment rather than committed blind. The stack is OpenResty (`nginx/Dockerfile`
+uses `openresty/openresty:bullseye` + `luarocks`), so:
+- `luarocks install lua-resty-opentelemetry` in the Dockerfile.
+- `init_worker_by_lua`: build a tracer with an OTLP exporter →
+  `http://otel-collector:4318` (the collector already accepts OTLP/HTTP).
+- In the `/api/` `access_by_lua`/`header_filter_by_lua`/`log_by_lua` phases:
+  start a server span, set attributes (route, status, the `cf-ray`/client-IP from
+  §7.2), **inject `traceparent` downstream** (replacing `ensure_traceparent()`,
+  which becomes the no-module fallback), and end the span in `log_by_lua`.
+- Result: nginx's own timing (TLS, upstream wait, the `/auth/validate`
+  sub-request) sits at the top of the trace and the backend's gin span becomes a
+  true child instead of a dangling remote parent.
+- Alternative if you move off OpenResty to stock nginx: the official
+  `ngx_otel_module` (`load_module` + `otel_exporter`/`otel_trace` directives) is
+  simpler and first-party.
+
+### 7.2 Cloudflare as the outermost hop
+Two levels, pick per appetite:
+- **Correlate (cheap, do first) — ✅ DONE (backend):** `annotateEdge`
+  (`internal/app/middleware.go`) captures `CF-Ray` (→ `cloudflare.ray` span attr
+  + `cf_ray` log field), the real client IP from `CF-Connecting-IP` (→
+  `client.address` span attr + `client_ip` log field), and `CF-IPCountry`. The
+  request log line and the request span now carry `cf_ray`, so "find this trace"
+  ↔ "find this Cloudflare log (Logpush)" is one hop.
+- **Root at Cloudflare (full):** have Cloudflare emit/propagate W3C trace context
+  so the trace literally starts before nginx:
+  - A **Cloudflare Worker** on the route that starts a span and injects
+    `traceparent` (and can export to the collector via Workers tracing/OTLP).
+  - Or rely on a browser OTel web SDK sending `traceparent` — nginx already
+    continues an inbound one (Phase 3.0).
+  - Without a Worker, you can't make CF a real *span*, but `cf-ray` as a join key
+    gives most of the value.
+
+### 7.3 Trust boundary (important with a public tunnel)
+Honoring an inbound `traceparent` from the open internet lets any client pin
+arbitrary trace ids (trace-id spoofing, cardinality blow-ups). Because **all**
+traffic arrives via Cloudflare here, the edge should only continue trace context
+that came through Cloudflare:
+- At nginx, **trust `traceparent` only when a Cloudflare signal is present**
+  (e.g. `cf-ray` set, or a verified `CF-Connecting-IP`/Cloudflare Access JWT);
+  otherwise generate a fresh one (current Phase 3.0 behavior is generate-or-
+  continue — tighten it to generate-unless-from-CF).
+- Optionally lock nginx to only accept connections from the tunnel.
+
+### End state
+`Cloudflare (cf-ray attr, optional Worker span) → nginx span → backend gin span
+→ DB / external / enqueue → (link) queue job` — one trace from the true edge,
+with Cloudflare's logs joinable by `cf-ray`.
+
+---
+
 ## Effort / sequencing
 
-| Phase | Theme | Risk | Roughly |
-|-------|-------|------|---------|
-| 1 | slog foundation + ctx plumbing | Low | small |
-| 2 | zap→slog migration + severity audit | Medium (wide, mechanical) | largest |
-| 3 | OTel tracing — **nginx origin (3.0)** + backend spans + queue span-links | Medium | medium |
-| 4 | OTLP export + collector | Low (mostly infra/config) | small–medium |
-| 5 | ERROR discipline (codes, metric, CI, alerts) | Low | medium |
-| 6 | dashboards + rollout | Low | small |
+| Phase | Theme | Risk | Roughly | Status |
+|-------|-------|------|---------|--------|
+| 1 | slog foundation + ctx plumbing | Low | small | ✅ done |
+| 2 | zap→slog migration + severity audit | Medium (wide, mechanical) | largest | ✅ done |
+| 3 | OTel tracing — nginx origin (3.0, lighter) + backend spans + queue span-links | Medium | medium | ✅ done |
+| 4 | OTLP export + collector (tail-sampling keeps errors) | Low (mostly infra/config) | small–medium | ✅ done |
+| 5 | ERROR discipline (codes, metric, CI, alerts) | Low | medium | ✅ done |
+| 6 | dashboards + rollout (spanmetrics, alerts, `docs/observability.md`) | Low | small | ✅ done |
+| 7 | true edge root — nginx span (7.1) + Cloudflare correlation (7.2) | Medium (infra) | medium | ◐ 7.2 done; 7.3 done; 7.1 = documented recipe |
 
 **Recommended first PR:** Phase 1 — it's self-contained, immediately makes logs
 correlatable by `request_id`, and establishes the handler that every later phase
