@@ -20,6 +20,7 @@ type ShowDownloadRequestBody struct {
 	Season      int    `json:"season" binding:"required"`
 	Episode     int    `json:"episode"`
 	IMDBID      string `json:"imdb_id"`
+	TMDBID      string `json:"tmdb_id"`
 	TVDBID      string `json:"tvdb_id"`
 	PosterURL   string `json:"poster_url"`
 	TorrentURL  string `json:"torrent_url" binding:"required"`

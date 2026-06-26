@@ -223,6 +223,7 @@ func (s *service) createShow(ctx context.Context, input CreateFromRequestInput) 
 	show := Show{
 		Name:      input.Name,
 		IMDBID:    input.IMDBID,
+		TMDBID:    input.TMDBID,
 		TVDBID:    input.TVDBID,
 		PosterURL: stringPtr(input.PosterURL),
 	}

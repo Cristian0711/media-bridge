@@ -24,7 +24,7 @@ type Repository interface {
 	FindShowEntryIDsByShowAndScope(ctx context.Context, showID uint, quality string, season, episode *int) ([]uint, error)
 	// MovieQualitiesByExternalIDs / ShowQualitiesByExternalIDs back the bulk availability lookup.
 	MovieQualitiesByExternalIDs(ctx context.Context, imdbIDs, tmdbIDs []string) ([]movieQualityRow, error)
-	ShowQualitiesByExternalIDs(ctx context.Context, imdbIDs, tvdbIDs []string) ([]showQualityRow, error)
+	ShowQualitiesByExternalIDs(ctx context.Context, imdbIDs, tmdbIDs, tvdbIDs []string) ([]showQualityRow, error)
 	// DeleteMovieMediaCascade removes media + orphan movie in one transaction (R3).
 	DeleteMovieMediaCascade(ctx context.Context, mediaID, movieID uint) error
 	// DeleteShowMediaCascade removes media + orphan show_entry/show in one transaction (R3).
@@ -188,10 +188,18 @@ func findOrCreateShow(tx *gorm.DB, show *Show) error {
 	var existing Show
 	err := q.First(&existing).Error
 	if err == nil {
+		// Backfill tmdb_id on a show stored before we tracked it, so library
+		// availability can match TMDB-sourced search results.
+		if existing.TMDBID == "" && show.TMDBID != "" {
+			if e := tx.Model(&existing).Update("tmdb_id", show.TMDBID).Error; e != nil {
+				return e
+			}
+			existing.TMDBID = show.TMDBID
+		}
 		*show = existing
 		return nil
 	}
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	return tx.Create(show).Error

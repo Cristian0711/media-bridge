@@ -15,7 +15,7 @@
   import { downloadMovie, downloadShow } from '$lib/requests/api';
   import { ApiError } from '$lib/api/client';
   import { resolveItemForIndexer } from '$lib/search/api';
-  import { availabilityItem, fetchOwnedQualities } from '$lib/media/availability';
+  import { availabilityItem, fetchOwnedQualities, fetchOwnedSeasons } from '$lib/media/availability';
   import { indexerParamsFor, posterFromItem } from '$lib/search/indexer-params';
   import { MEDIA_UNAVAILABLE, NO_FREELEECH, showToast } from '$lib/toast/toast.svelte';
   import type { IndexerMovie, IndexerShow } from '$lib/types/indexer';
@@ -48,6 +48,8 @@
   let seasonDialogOpen = $state(false);
   let seasonCount = $state(0);
   let pendingDownload = $state(false);
+  // Seasons of the active show already in the library — marked in the picker.
+  let ownedSeasons = $state<Set<number>>(new Set<number>());
 
   let showDialogOpen = $state(false);
   let showResults: IndexerShow[] = $state([]);
@@ -68,6 +70,11 @@
   async function loadOwnedQualities(item: MediaItem, mediaType: MediaType, season?: number) {
     ownedQualities = [];
     ownedQualities = await fetchOwnedQualities(availabilityItem(item, mediaType, season));
+  }
+
+  async function loadOwnedSeasons(item: MediaItem, count: number) {
+    ownedSeasons = new Set<number>();
+    ownedSeasons = await fetchOwnedSeasons(item, count);
   }
 
   function openMovieDialog(response: Awaited<ReturnType<typeof searchMovies>>) {
@@ -146,6 +153,7 @@
       name: item.title,
       season: show.season,
       imdb_id: item.ids.imdb!,
+      tmdb_id: item.ids.tmdb?.toString(),
       tvdb_id: item.ids.tvdb?.toString(),
       poster_url: posterFromItem(item),
       torrent_url: show.download_link,
@@ -193,6 +201,7 @@
     error = '';
     statusMessage = '';
     ownedQualities = [];
+    ownedSeasons = new Set<number>();
 
     try {
       const item = await resolveItemForIndexer(row.item, row.mediaType);
@@ -205,6 +214,7 @@
       } else {
         pendingDownload = false;
         seasonCount = await probeSeasons(item, row.mediaType);
+        void loadOwnedSeasons(item, seasonCount);
         seasonDialogOpen = true;
       }
     } catch (e) {
@@ -221,6 +231,7 @@
     error = '';
     statusMessage = '';
     ownedQualities = [];
+    ownedSeasons = new Set<number>();
 
     try {
       const item = await resolveItemForIndexer(row.item, row.mediaType);
@@ -247,6 +258,7 @@
           showToast(MEDIA_UNAVAILABLE);
           return;
         }
+        void loadOwnedSeasons(item, seasonCount);
         seasonDialogOpen = true;
       }
     } catch (e) {
@@ -348,6 +360,7 @@
     }
   }}
   {seasonCount}
+  {ownedSeasons}
   showTitle={selectedRow?.item.title ?? ''}
   onSelectSeason={handleSeasonSelected}
 />

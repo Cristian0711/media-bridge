@@ -104,6 +104,7 @@ func (s *service) RequestShowDownload(ctx context.Context, req ShowDownloadReque
 		Username:    username,
 		RequestID:   requestID,
 		IMDBID:      req.IMDBID,
+		TMDBID:      req.TMDBID,
 		TVDBID:      req.TVDBID,
 		Season:      req.Season,
 		Episode:     req.Episode,

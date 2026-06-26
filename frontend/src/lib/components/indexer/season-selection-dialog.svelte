@@ -7,7 +7,7 @@
     DialogDescription,
   } from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
-  import { Tv } from 'lucide-svelte';
+  import { Tv, CheckCircle2 } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -15,9 +15,18 @@
     seasonCount: number;
     showTitle: string;
     onSelectSeason: (season: number | 'all') => void;
+    /** Seasons already in the library — marked with a check. */
+    ownedSeasons?: Set<number>;
   }
 
-  let { open, onOpenChange, seasonCount, showTitle, onSelectSeason }: Props = $props();
+  let {
+    open,
+    onOpenChange,
+    seasonCount,
+    showTitle,
+    onSelectSeason,
+    ownedSeasons = new Set<number>(),
+  }: Props = $props();
 
   const seasons = $derived(Array.from({ length: Math.max(0, seasonCount) }, (_, i) => i + 1));
 </script>
@@ -47,9 +56,12 @@
             <Button
               onclick={() => onSelectSeason(season)}
               variant="outline"
-              class="text-sm {seasons.length % 2 === 1 && season === seasons.length ? 'col-span-2' : ''}"
+              class="gap-1.5 text-sm {seasons.length % 2 === 1 && season === seasons.length ? 'col-span-2' : ''}"
             >
               Season {season}
+              {#if ownedSeasons.has(season)}
+                <CheckCircle2 class="h-3.5 w-3.5 text-green-500" aria-label="In your library" />
+              {/if}
             </Button>
           {/each}
         </div>

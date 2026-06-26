@@ -46,3 +46,32 @@ export async function fetchOwnedQualities(it: AvailabilityItem): Promise<string[
     return [];
   }
 }
+
+/**
+ * Returns the set of a show's seasons (1..seasonCount) already in the library, in
+ * one batch availability call. Used to mark owned seasons in the season picker.
+ */
+export async function fetchOwnedSeasons(
+  item: MediaItem,
+  seasonCount: number,
+): Promise<Set<number>> {
+  const owned = new Set<number>();
+  if (seasonCount <= 0) return owned;
+  if (!item.ids.imdb && item.ids.tmdb == null && item.ids.tvdb == null) return owned;
+
+  const seasons = Array.from({ length: seasonCount }, (_, i) => i + 1);
+  const items = seasons.map((s) => availabilityItem(item, 'shows', s));
+  try {
+    const res = await callApi<{ results: AvailabilityResult[] }>('/media/availability', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+    const results = res.results ?? [];
+    seasons.forEach((s, i) => {
+      if (results[i]?.available) owned.add(s);
+    });
+  } catch {
+    // Best effort — no markers on failure.
+  }
+  return owned;
+}

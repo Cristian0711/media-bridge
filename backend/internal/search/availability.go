@@ -38,10 +38,13 @@ func availabilityQueryFromResult(r Result) (AvailabilityQuery, bool) {
 		return q, q.IMDB != "" || q.TMDB != ""
 	case r.Type == "show" && r.Show != nil:
 		q := AvailabilityQuery{Type: "show", IMDB: r.Show.IDs.IMDB}
+		if r.Show.IDs.TMDB > 0 {
+			q.TMDB = strconv.Itoa(r.Show.IDs.TMDB)
+		}
 		if r.Show.IDs.TVDB > 0 {
 			q.TVDB = strconv.Itoa(r.Show.IDs.TVDB)
 		}
-		return q, q.IMDB != "" || q.TVDB != ""
+		return q, q.IMDB != "" || q.TMDB != "" || q.TVDB != ""
 	default:
 		return AvailabilityQuery{}, false
 	}

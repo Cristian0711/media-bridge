@@ -55,6 +55,7 @@ type Show struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"not null;index" json:"name"`
 	IMDBID    string    `gorm:"type:varchar(20);index" json:"imdb_id,omitempty"`
+	TMDBID    string    `gorm:"type:varchar(20);index" json:"tmdb_id,omitempty"`
 	TVDBID    string    `gorm:"type:varchar(20);index" json:"tvdb_id,omitempty"`
 	PosterURL *string   `gorm:"type:text" json:"poster_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`

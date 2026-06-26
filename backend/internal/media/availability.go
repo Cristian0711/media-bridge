@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +47,7 @@ type movieQualityRow struct {
 
 type showQualityRow struct {
 	IMDBID  string `gorm:"column:imdb_id"`
+	TMDBID  string `gorm:"column:tmdb_id"`
 	TVDBID  string `gorm:"column:tvdb_id"`
 	Season  *int   `gorm:"column:season"`
 	Quality string `gorm:"column:quality"`
@@ -80,26 +82,33 @@ func (r *repository) MovieQualitiesByExternalIDs(ctx context.Context, imdbIDs, t
 }
 
 // ShowQualitiesByExternalIDs returns one row per (show entry, quality) for any
-// show matching one of the given imdb or tvdb ids, carrying the entry season so
-// callers can scope to a specific season. A single indexed query.
-func (r *repository) ShowQualitiesByExternalIDs(ctx context.Context, imdbIDs, tvdbIDs []string) ([]showQualityRow, error) {
-	if len(imdbIDs) == 0 && len(tvdbIDs) == 0 {
+// show matching one of the given imdb, tmdb, or tvdb ids, carrying the entry
+// season so callers can scope to a specific season. A single indexed query.
+func (r *repository) ShowQualitiesByExternalIDs(ctx context.Context, imdbIDs, tmdbIDs, tvdbIDs []string) ([]showQualityRow, error) {
+	if len(imdbIDs) == 0 && len(tmdbIDs) == 0 && len(tvdbIDs) == 0 {
 		return nil, nil
 	}
 	q := r.db.WithContext(ctx).
 		Model(&Media{}).
-		Select("shows.imdb_id AS imdb_id, shows.tvdb_id AS tvdb_id, show_entries.season AS season, media.quality AS quality").
+		Select("shows.imdb_id AS imdb_id, shows.tmdb_id AS tmdb_id, shows.tvdb_id AS tvdb_id, show_entries.season AS season, media.quality AS quality").
 		Joins("JOIN show_entries ON show_entries.id = media.show_entry_id").
 		Joins("JOIN shows ON shows.id = show_entries.show_id")
 
-	switch {
-	case len(imdbIDs) > 0 && len(tvdbIDs) > 0:
-		q = q.Where("(shows.imdb_id IN ? OR shows.tvdb_id IN ?)", imdbIDs, tvdbIDs)
-	case len(imdbIDs) > 0:
-		q = q.Where("shows.imdb_id IN ?", imdbIDs)
-	default:
-		q = q.Where("shows.tvdb_id IN ?", tvdbIDs)
+	var ors []string
+	var args []any
+	if len(imdbIDs) > 0 {
+		ors = append(ors, "shows.imdb_id IN ?")
+		args = append(args, imdbIDs)
 	}
+	if len(tmdbIDs) > 0 {
+		ors = append(ors, "shows.tmdb_id IN ?")
+		args = append(args, tmdbIDs)
+	}
+	if len(tvdbIDs) > 0 {
+		ors = append(ors, "shows.tvdb_id IN ?")
+		args = append(args, tvdbIDs)
+	}
+	q = q.Where(strings.Join(ors, " OR "), args...)
 
 	var rows []showQualityRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -120,6 +129,7 @@ func (s *service) CheckAvailability(ctx context.Context, items []AvailabilityIte
 	movieImdb := map[string]struct{}{}
 	movieTmdb := map[string]struct{}{}
 	showImdb := map[string]struct{}{}
+	showTmdb := map[string]struct{}{}
 	showTvdb := map[string]struct{}{}
 
 	for _, it := range items {
@@ -129,6 +139,7 @@ func (s *service) CheckAvailability(ctx context.Context, items []AvailabilityIte
 			addNonEmpty(movieTmdb, it.TMDBID)
 		case "show":
 			addNonEmpty(showImdb, it.IMDBID)
+			addNonEmpty(showTmdb, it.TMDBID)
 			addNonEmpty(showTvdb, it.TVDBID)
 		}
 	}
@@ -151,15 +162,19 @@ func (s *service) CheckAvailability(ctx context.Context, items []AvailabilityIte
 	}
 
 	showByImdb := map[string][]showQualityRow{}
+	showByTmdb := map[string][]showQualityRow{}
 	showByTvdb := map[string][]showQualityRow{}
-	if len(showImdb) > 0 || len(showTvdb) > 0 {
-		rows, err := s.repo.ShowQualitiesByExternalIDs(ctx, setKeys(showImdb), setKeys(showTvdb))
+	if len(showImdb) > 0 || len(showTmdb) > 0 || len(showTvdb) > 0 {
+		rows, err := s.repo.ShowQualitiesByExternalIDs(ctx, setKeys(showImdb), setKeys(showTmdb), setKeys(showTvdb))
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
 			if row.IMDBID != "" {
 				showByImdb[row.IMDBID] = append(showByImdb[row.IMDBID], row)
+			}
+			if row.TMDBID != "" {
+				showByTmdb[row.TMDBID] = append(showByTmdb[row.TMDBID], row)
 			}
 			if row.TVDBID != "" {
 				showByTvdb[row.TVDBID] = append(showByTvdb[row.TVDBID], row)
@@ -181,6 +196,9 @@ func (s *service) CheckAvailability(ctx context.Context, items []AvailabilityIte
 			var rows []showQualityRow
 			if it.IMDBID != "" {
 				rows = append(rows, showByImdb[it.IMDBID]...)
+			}
+			if it.TMDBID != "" {
+				rows = append(rows, showByTmdb[it.TMDBID]...)
 			}
 			if it.TVDBID != "" {
 				rows = append(rows, showByTvdb[it.TVDBID]...)

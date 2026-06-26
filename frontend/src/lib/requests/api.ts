@@ -35,6 +35,7 @@ export type ShowDownloadBody = {
   season: number;
   episode?: number;
   imdb_id?: string;
+  tmdb_id?: string;
   tvdb_id?: string;
   poster_url?: string;
   torrent_url: string;
