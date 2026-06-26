@@ -85,7 +85,10 @@ func filterAndSortShows(shows []Show, season, episode int, quality string) (pars
 		if quality != "" && canonicalQuality(s.Quality) != canonicalQuality(quality) {
 			continue
 		}
-		if s.Season > 0 {
+		if s.Parsed {
+			// s.Season may legitimately be 0 here (S00 specials); bucket on
+			// whether a season tag was matched, not on season > 0, so specials
+			// are filterable instead of being dumped into "unparsed".
 			if season > 0 && s.Season != season {
 				continue
 			}

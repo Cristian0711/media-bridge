@@ -122,17 +122,17 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 
 		hash := qbittorrent.NormalizeHash(progress.TorrentHash)
 		if hash == "" {
-			if err := w.finalizeDownloaded(ctx, log, req, hash); err != nil {
-				log.Debug("download finalize failed", zap.Uint("request_entry_id", req.ID), zap.Error(err))
-			}
+			w.finalizeIfStillLinked(ctx, log, req, hash)
 			continue
 		}
 
 		torrent, ok := torrentByHash[hash]
 		if !ok {
-			if err := w.finalizeDownloaded(ctx, log, req, hash); err != nil {
-				log.Debug("download finalize failed", zap.Uint("request_entry_id", req.ID), zap.Error(err))
-			}
+			// Torrent absent from qBittorrent is ambiguous: it can mean
+			// "finished and cleaned up" or "a remove is tearing it down right
+			// now". Re-verify the hardlinks before finalizing so we don't flip
+			// a request being removed back to 'downloaded' (H1).
+			w.finalizeIfStillLinked(ctx, log, req, hash)
 			continue
 		}
 
@@ -161,6 +161,39 @@ func (w *DownloadCompletionWatcher) tick(ctx context.Context, log *zap.Logger) {
 				zap.Error(err),
 			)
 		}
+	}
+}
+
+// finalizeIfStillLinked finalizes a download only after re-confirming the
+// library hardlinks are still complete on disk. It guards the "torrent absent
+// from qBittorrent" paths, where absence alone is not a reliable completion
+// signal: a concurrent remove may be deleting the files. Re-checking right
+// before the state transition (together with MarkDownloadedIfDownloading's
+// status guard) prevents resurrecting a download that is being removed (H1).
+func (w *DownloadCompletionWatcher) finalizeIfStillLinked(
+	ctx context.Context,
+	log *zap.Logger,
+	req *Request,
+	hash string,
+) {
+	progress, err := w.hardlinkSvc.Progress(ctx, req.MediaID)
+	if err != nil {
+		log.Debug("re-verify hardlinks before finalize failed",
+			zap.Uint("request_entry_id", req.ID),
+			zap.Uint("media_id", req.MediaID),
+			zap.Error(err),
+		)
+		return
+	}
+	if progress.Total == 0 || !progress.Complete {
+		log.Debug("skip finalize: hardlinks no longer complete",
+			zap.Uint("request_entry_id", req.ID),
+			zap.Uint("media_id", req.MediaID),
+		)
+		return
+	}
+	if err := w.finalizeDownloaded(ctx, log, req, hash); err != nil {
+		log.Debug("download finalize failed", zap.Uint("request_entry_id", req.ID), zap.Error(err))
 	}
 }
 

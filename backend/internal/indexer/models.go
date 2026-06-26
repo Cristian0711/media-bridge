@@ -54,4 +54,5 @@ type Show struct {
 	Season       int    `json:"season"`
 	Episode      int    `json:"episode"`
 	Complete     bool   `json:"complete_season"`
+	Parsed       bool   `json:"-"` // true when a season tag was matched; distinguishes S00 specials from unparseable
 }

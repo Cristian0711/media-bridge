@@ -90,21 +90,33 @@ func (s *service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		role = users.RoleAdmin
 	}
 
+	// Atomically claim the single-use key before creating the user. This is the
+	// authoritative consume: only one of several concurrent registrations using
+	// the same key can win, so a key can never create two accounts.
+	claimed, err := s.repo.ConsumeKey(ctx, req.Key)
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		return nil, ErrKeyInvalid
+	}
+
 	user, err := s.userSvc.Create(ctx, users.CreateInput{
 		Username:     username,
 		PasswordHash: string(hash),
 		Role:         role,
 	})
 	if err != nil {
+		// The key was claimed but the user was not created, so the invite was
+		// never really used: release the claim so it stays valid. Best effort —
+		// the original creation error is what we surface.
+		if reErr := s.repo.ReactivateKey(ctx, req.Key); reErr != nil {
+			_ = reErr
+		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return nil, ErrUserAlreadyExists
 		}
-		return nil, err
-	}
-
-	// Key is consumed after successful registration.
-	if err := s.repo.DisableKey(ctx, req.Key); err != nil {
 		return nil, err
 	}
 

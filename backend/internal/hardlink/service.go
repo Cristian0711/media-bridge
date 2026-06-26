@@ -229,7 +229,12 @@ func (s *service) runHardlink(ctx context.Context, mediaID uint, torrentHash, sa
 func (s *service) errIfTorrentStillDownloading(ctx context.Context, torrentHash, msg string) error {
 	t, err := s.qbitService.GetTorrent(ctx, torrentHash)
 	if err != nil {
-		return nil
+		// Transient qBittorrent failure (outage, timeout): defer rather than
+		// returning nil. Returning nil lets the caller surface a plain error
+		// that counts toward MaxAttempts, so a brief qBit blip could mark a
+		// still-downloading request 'failed'. Deferring requeues the job
+		// without consuming a real attempt.
+		return fmt.Errorf("%s: checking torrent status: %w", msg, processingqueue.ErrDeferRetry)
 	}
 	if qbittorrent.TorrentTransferComplete(*t) {
 		return nil
@@ -266,22 +271,25 @@ func buildSourcePath(savePath, filePath string) string {
 
 // hardlinkPresent is true when source exists and dest is the same inode (already linked).
 func hardlinkPresent(sourcePath, destPath string) bool {
-	if _, err := os.Stat(sourcePath); err != nil {
+	if _, err := os.Lstat(sourcePath); err != nil {
 		return false
 	}
 	return sameInode(sourcePath, destPath)
 }
 
 // sameInode reports whether the two paths reference the same underlying inode
-// (i.e. they are hardlinks). Uses os.SameFile which compares (device, inode)
-// on Unix. Any stat error returns false — the caller will treat that as
-// "different" and rebuild the link.
+// (i.e. they are hardlinks). Uses os.Lstat (not os.Stat) so a symlinked source
+// is compared as the symlink itself rather than its target — otherwise a
+// symlink pointing at an unrelated file could report a false inode match and
+// the real hardlink would never be created. Compares (device, inode) via
+// os.SameFile. Any stat error returns false — the caller treats that as
+// "different" and rebuilds the link.
 func sameInode(a, b string) bool {
-	ai, err := os.Stat(a)
+	ai, err := os.Lstat(a)
 	if err != nil {
 		return false
 	}
-	bi, err := os.Stat(b)
+	bi, err := os.Lstat(b)
 	if err != nil {
 		return false
 	}

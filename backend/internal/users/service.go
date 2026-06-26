@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -49,8 +50,10 @@ func (s *service) Create(ctx context.Context, input CreateInput) (*User, error) 
 	if role == "" {
 		role = RoleUser
 	}
+	// Normalize username to lowercase so the case-sensitive unique index cannot
+	// be bypassed by a caller that did not pre-normalize (e.g. a direct Create).
 	user := &User{
-		Username:     input.Username,
+		Username:     strings.ToLower(input.Username),
 		Role:         role,
 		PasswordHash: input.PasswordHash,
 	}

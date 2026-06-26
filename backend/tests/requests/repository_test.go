@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/requests"
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
 	"github.com/Cristian0711/media-bridge/backend/tests/testhelpers"
@@ -16,6 +17,9 @@ func newRequestsRepo(t *testing.T) (requests.Repository, *gorm.DB) {
 	t.Helper()
 	db := testhelpers.OpenSQLite(t)
 	testhelpers.MigrateRequests(t, db)
+	// PurgeTerminalOlderThan references the media table to keep 'downloaded'
+	// rows that still pin a live media row, so it must exist here too.
+	testhelpers.MigrateMedia(t, db)
 	return requests.NewRepository(db, sse.NoopPublisher{}), db
 }
 
@@ -389,5 +393,52 @@ func TestPurgeTerminalOlderThan_DeletesOldRows(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("expected 1 purged, got %d", n)
+	}
+}
+
+func TestPurgeTerminalOlderThan_KeepsDownloadedReferencingLiveMedia(t *testing.T) {
+	repo, db := newRequestsRepo(t)
+	ctx := context.Background()
+
+	// A live media row that an old 'downloaded' request still references.
+	med := &media.Media{
+		Type: media.MediaTypeMovie, Name: "Live", Path: "/m/live",
+		Indexer: "x", Quality: "1080p", UserID: 1, Username: "u",
+	}
+	if err := db.Create(med).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	keep := &requests.Request{
+		Type: "movie_download", Status: "downloaded", Name: "Keep",
+		UserID: 1, Username: "u", RequestID: "keep",
+		Indexer: "x", Quality: "1080p", MediaID: med.ID,
+	}
+	// An old 'downloaded' request whose media row is already gone.
+	orphan := &requests.Request{
+		Type: "movie_download", Status: "downloaded", Name: "Orphan",
+		UserID: 1, Username: "u", RequestID: "orphan",
+		Indexer: "x", Quality: "1080p", MediaID: 99999,
+	}
+	for _, r := range []*requests.Request{keep, orphan} {
+		if err := repo.Create(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Now().Add(-100 * 24 * time.Hour)
+	if err := db.Model(&requests.Request{}).Where("id IN ?", []uint{keep.ID, orphan.ID}).
+		Update("updated_at", oldTime).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := repo.PurgeTerminalOlderThan(ctx, 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 purged (orphan only), got %d", n)
+	}
+	if _, err := repo.FindByID(ctx, keep.ID); err != nil {
+		t.Fatalf("expected downloaded row referencing live media to be kept: %v", err)
 	}
 }

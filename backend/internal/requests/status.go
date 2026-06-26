@@ -37,8 +37,14 @@ var cancellableDownloadStatusesForRemove = []string{StatusPending, StatusQueued,
 // fresh remove POST simply 404s upstream.
 var activeRemoveStatuses = []string{StatusPending, StatusRemoving}
 
-// terminalRequestStatuses are the end states eligible for retention purge (R9).
+// terminalRequestStatuses are the end states of the request lifecycle.
 var terminalRequestStatuses = []string{StatusDownloaded, StatusRemoved, StatusFailed, StatusCancelled}
+
+// purgeableTerminalStatuses are the terminal states that never pin a live media
+// row, so they can be retention-purged unconditionally (R9). 'downloaded' is
+// excluded here and handled separately: it is the provenance a later remove
+// looks up by media_id, so it is only purged once its media row is gone (H2).
+var purgeableTerminalStatuses = []string{StatusRemoved, StatusFailed, StatusCancelled}
 
 // downloadTypes / removeTypes group request types by pipeline.
 var (

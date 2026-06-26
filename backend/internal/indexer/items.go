@@ -27,7 +27,7 @@ func processMovieItems(_ context.Context, items []IndexerItem) []Movie {
 func processShowItems(_ context.Context, items []IndexerItem) []Show {
 	shows := make([]Show, 0, len(items))
 	for _, item := range items {
-		season, episode, complete := parseSeasonEpisode(item.Name)
+		season, episode, complete, parsed := parseSeasonEpisode(item.Name)
 		show := Show{
 			ID:           parseID(item.ID),
 			Name:         item.Name,
@@ -44,6 +44,7 @@ func processShowItems(_ context.Context, items []IndexerItem) []Show {
 			Season:       season,
 			Episode:      episode,
 			Complete:     complete,
+			Parsed:       parsed,
 		}
 		shows = append(shows, show)
 	}

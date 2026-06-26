@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
@@ -270,15 +271,35 @@ func (r *repository) FindByID(ctx context.Context, id uint) (*Request, error) {
 // created and the existing row is returned with created=false. When enqueue is
 // non-nil it runs inside the same transaction so the request row and its queue
 // job commit atomically (R1, R2).
+// dedupAdvisoryLock serializes concurrent createIfAbsent transactions that share
+// the same dedup scope. Without it, findExisting's SELECT and the subsequent
+// Create run under READ COMMITTED with no overlap guarantee, so two identical
+// concurrent requests can both miss the existing row and both insert (C1). A
+// transaction-level advisory lock makes the loser block until the winner
+// commits, at which point its findExisting sees the new row. No-op on dialects
+// without advisory locks (e.g. SQLite in tests, where access is serialized).
+func dedupAdvisoryLock(tx *gorm.DB, scope string) error {
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(scope))
+	return tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(h.Sum64())).Error
+}
+
 func (r *repository) createIfAbsent(
 	ctx context.Context,
 	req *Request,
+	scope string,
 	findExisting func(tx *gorm.DB) *gorm.DB,
 	enqueue func(tx *gorm.DB, entry *Request) error,
 ) (*Request, bool, error) {
 	var existing Request
 	created := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := dedupAdvisoryLock(tx, scope); err != nil {
+			return err
+		}
 		err := findExisting(tx).Order("created_at DESC").First(&existing).Error
 		if err == nil {
 			return nil
@@ -316,7 +337,8 @@ func (r *repository) CreateMovieDownloadIfAbsent(
 	if imdbID == "" && tmdbID == "" {
 		return nil, false, fmt.Errorf("movie download requires imdb_id or tmdb_id")
 	}
-	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
+	scope := fmt.Sprintf("movie_download|imdb=%s|tmdb=%s|q=%s", imdbID, tmdbID, quality)
+	return r.createIfAbsent(ctx, req, scope, func(tx *gorm.DB) *gorm.DB {
 		q := tx.Model(&Request{}).
 			Where("type = ?", TypeMovieDownload).
 			Where("status IN ?", activeDownloadStatuses).
@@ -338,7 +360,8 @@ func (r *repository) CreateShowDownloadIfAbsent(
 	if imdbID == "" && tvdbID == "" {
 		return nil, false, fmt.Errorf("show download requires imdb_id or tvdb_id")
 	}
-	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
+	scope := fmt.Sprintf("show_download|imdb=%s|tvdb=%s|q=%s|s=%d|e=%d", imdbID, tvdbID, quality, season, episode)
+	return r.createIfAbsent(ctx, req, scope, func(tx *gorm.DB) *gorm.DB {
 		q := tx.Model(&Request{}).
 			Where("type = ?", TypeShowDownload).
 			Where("status IN ?", activeDownloadStatuses).
@@ -362,7 +385,8 @@ func (r *repository) CreateRemoveIfAbsent(
 	if mediaID == 0 {
 		return nil, false, fmt.Errorf("remove requires media_id")
 	}
-	return r.createIfAbsent(ctx, req, func(tx *gorm.DB) *gorm.DB {
+	scope := fmt.Sprintf("%s|media=%d", requestType, mediaID)
+	return r.createIfAbsent(ctx, req, scope, func(tx *gorm.DB) *gorm.DB {
 		return tx.Model(&Request{}).
 			Where("media_id = ?", mediaID).
 			Where("type = ?", requestType).
@@ -534,10 +558,28 @@ func filterWithoutJob(
 
 func (r *repository) PurgeTerminalOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-retention)
+
+	// Terminal states that never reference a live media row.
 	res := r.db.WithContext(ctx).
 		Unscoped().
-		Where("status IN ?", terminalRequestStatuses).
+		Where("status IN ?", purgeableTerminalStatuses).
 		Where("updated_at < ?", cutoff).
 		Delete(&Request{})
-	return res.RowsAffected, res.Error
+	if res.Error != nil {
+		return res.RowsAffected, res.Error
+	}
+	total := res.RowsAffected
+
+	// 'downloaded' rows are the provenance a later remove looks up by media_id,
+	// so only purge them once the media row they reference no longer exists (H2).
+	res2 := r.db.WithContext(ctx).
+		Unscoped().
+		Where("status = ?", StatusDownloaded).
+		Where("updated_at < ?", cutoff).
+		Where("media_id IS NULL OR media_id = 0 OR media_id NOT IN (SELECT id FROM media)").
+		Delete(&Request{})
+	if res2.Error != nil {
+		return total, res2.Error
+	}
+	return total + res2.RowsAffected, nil
 }
