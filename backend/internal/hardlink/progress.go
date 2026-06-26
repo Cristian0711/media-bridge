@@ -29,13 +29,17 @@ type Progress struct {
 // clone returns a deep copy of the progress, including its slices, so callers
 // (and the progress cache) can hand out independent copies. Mutating one copy —
 // e.g. appending to Done/Remaining — must never race or corrupt another.
+//
+// The slices are copied into non-nil empties so an empty list stays an empty
+// list (JSON []), not null: API/SSE consumers rely on done/remaining always
+// being arrays. (append([]Artifact(nil), empty...) would yield nil.)
 func (p *Progress) clone() *Progress {
 	if p == nil {
 		return nil
 	}
 	cp := *p
-	cp.Done = append([]Artifact(nil), p.Done...)
-	cp.Remaining = append([]Artifact(nil), p.Remaining...)
+	cp.Done = append(make([]Artifact, 0, len(p.Done)), p.Done...)
+	cp.Remaining = append(make([]Artifact, 0, len(p.Remaining)), p.Remaining...)
 	return &cp
 }
 
