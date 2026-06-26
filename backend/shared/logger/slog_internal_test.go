@@ -148,6 +148,28 @@ func TestContextHandlerStampsTraceIDs(t *testing.T) {
 	}
 }
 
+func TestContextHandlerSkipsUnsampledTraceIDs(t *testing.T) {
+	var buf bytes.Buffer
+	log := newCaptureLogger(&buf)
+
+	// A valid-but-unsampled span context (the kind we plant on untraced SSE
+	// streams). Its id must NOT appear, since no trace is exported for it.
+	traceID, _ := trace.TraceIDFromHex("01000000000000000000000000000000")
+	spanID, _ := trace.SpanIDFromHex("0100000000000000")
+	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: traceID, SpanID: spanID}) // TraceFlags 0 = not sampled
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
+
+	log.InfoContext(ctx, "sse line")
+
+	m := decode(t, &buf)
+	if _, ok := m["trace_id"]; ok {
+		t.Errorf("trace_id should be absent for an unsampled context, got %v", m["trace_id"])
+	}
+	if _, ok := m["span_id"]; ok {
+		t.Errorf("span_id should be absent for an unsampled context, got %v", m["span_id"])
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	cases := map[string]slog.Level{
 		"":        slog.LevelInfo,

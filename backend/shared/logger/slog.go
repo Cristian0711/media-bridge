@@ -135,8 +135,10 @@ func (h contextHandler) Handle(ctx context.Context, rec slog.Record) error {
 		rec.AddAttrs(a.attrs()...)
 	}
 	// Correlate logs with traces: stamp the active span's ids so a log line and
-	// its trace are one lookup apart.
-	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+	// its trace are one lookup apart. Only when sampled — an unsampled context
+	// (e.g. the synthetic parent we plant on untraced SSE streams) has no
+	// exported trace, so emitting its id would point at nothing.
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() && sc.IsSampled() {
 		rec.AddAttrs(
 			slog.String("trace_id", sc.TraceID().String()),
 			slog.String("span_id", sc.SpanID().String()),

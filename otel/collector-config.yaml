@@ -19,7 +19,9 @@ processors:
   # single backend instance. The app head-samples at 100% (OTEL_TRACES_SAMPLER_ARG=1.0)
   # so the collector makes the real keep/drop call here.
   tail_sampling:
-    decision_wait: 10s
+    # Hold a trace this long to collect all its spans before deciding. Also the
+    # minimum delay before a kept trace is queryable in Tempo.
+    decision_wait: 5s
     num_traces: 50000
     policies:
       # Always keep traces that contain an error span — failures are never dropped.
@@ -32,11 +34,15 @@ processors:
         type: latency
         latency:
           threshold_ms: 2000
-      # Sample the rest.
-      - name: sample-the-rest
+      # Keep everything else too. This is a low-volume self-hosted app, so 100%
+      # keeps every log's trace_id resolvable in Tempo (no "404 not found" when
+      # you click a trace id from a log). Lower this percentage if trace volume
+      # ever becomes a storage concern — but then fast/success traces a log links
+      # to may not exist.
+      - name: keep-the-rest
         type: probabilistic
         probabilistic:
-          sampling_percentage: 20
+          sampling_percentage: 100
   batch: {}
 
 connectors:
