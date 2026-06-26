@@ -8,8 +8,12 @@ RUN npm ci
 COPY frontend/ ./
 RUN apk add --no-cache imagemagick \
     && npm run build \
-    && magick build/icon-512.png -resize 180x180 build/apple-touch-icon.png \
-    && magick build/icon-512.png -resize 192x192 build/icon-192.png
+    # Pad-to-exact-square so icons always match the sizes declared in the manifest,
+    # even if the source image isn't square (e.g. a 3:2 logo). Derive the smaller
+    # icons from the source first, then normalize icon-512 itself last.
+    && magick build/icon-512.png -resize 192x192 -background "#0b0b0f" -gravity center -extent 192x192 build/icon-192.png \
+    && magick build/icon-512.png -resize 180x180 -background "#0b0b0f" -gravity center -extent 180x180 build/apple-touch-icon.png \
+    && magick build/icon-512.png -resize 512x512 -background "#0b0b0f" -gravity center -extent 512x512 build/icon-512.png
 
 FROM openresty/openresty:bullseye
 
