@@ -110,7 +110,9 @@ Open **Grafana at http://localhost:3000** → Explore:
 - **Traces:** pick the *Tempo* datasource (search by service / trace id / duration).
 - **Logs:** pick the *Loki* datasource (e.g. `{level="ERROR"}`, `{container="media-bridge-api"}`).
 - Provisioned dashboards: **"Media Bridge — Observability"** (errors-by-code,
-  request error %, recent ERROR logs) and **"Logging via Loki"** (the community
+  request error %, recent ERROR logs), **"Media Bridge — Traces (RED + recent)"**
+  (request rate/latency/error% + queue throughput from spanmetrics, plus recent
+  & error trace tables from Tempo), and **"Logging via Loki"** (the community
   per-service log explorer, grafana.com #18042).
 
 Promtail emits the labels the Loki dashboard expects: `container_name` (docker
