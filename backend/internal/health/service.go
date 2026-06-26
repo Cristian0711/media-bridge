@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
@@ -154,6 +155,11 @@ func (s *Service) checkQBittorrentWithTorrents(ctx context.Context) (map[string]
 	}
 }
 
+// fsAuditPerRootTimeout bounds each library/downloads root walk independently.
+// The roots run concurrently, so each gets the full budget rather than sharing
+// one with the others.
+const fsAuditPerRootTimeout = 2 * time.Minute
+
 func (s *Service) checkFilesystem(ctx context.Context) []Check {
 	start := time.Now()
 	ex, err := collectExclusions(ctx, s.db, s.mediaSvc)
@@ -164,13 +170,33 @@ func (s *Service) checkFilesystem(ctx context.Context) []Check {
 		}}
 	}
 
-	libraryRoot := s.cfg.MoviesPath
-	showsRoot := s.cfg.ShowsPath
-	downloadsRoot := s.cfg.DownloadsPath
-
-	moviesAudit := AuditRoot(ctx, libraryRoot, "library_movies", ex)
-	showsAudit := AuditRoot(ctx, showsRoot, "library_shows", ex)
-	downloadsAudit := AuditRoot(ctx, downloadsRoot, "downloads", ex)
+	// Audit the three roots concurrently. Sequentially, a large movies walk
+	// could consume the whole shared timeout and leave shows/downloads
+	// ctx-cancelled; running them in parallel gives each the full budget. Each
+	// root gets its own derived timeout so one hanging root can't block the
+	// others past the deadline.
+	var moviesAudit, showsAudit, downloadsAudit FSAuditResult
+	roots := []struct {
+		root string
+		zone string
+		dst  *FSAuditResult
+	}{
+		{s.cfg.MoviesPath, "library_movies", &moviesAudit},
+		{s.cfg.ShowsPath, "library_shows", &showsAudit},
+		{s.cfg.DownloadsPath, "downloads", &downloadsAudit},
+	}
+	var wg sync.WaitGroup
+	for i := range roots {
+		r := roots[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rootCtx, cancel := context.WithTimeout(ctx, fsAuditPerRootTimeout)
+			defer cancel()
+			*r.dst = AuditRoot(rootCtx, r.root, r.zone, ex)
+		}()
+	}
+	wg.Wait()
 
 	libMovies := FSResultToCheck("fs_movies_hardlinks", "Movies library hardlinks", moviesAudit)
 	libShows := FSResultToCheck("fs_shows_hardlinks", "Shows library hardlinks", showsAudit)

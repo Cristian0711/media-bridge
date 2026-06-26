@@ -40,11 +40,17 @@ type service struct {
 	client *qbittorrent.Client
 }
 
+// clientTimeoutSeconds bounds any single qBittorrent HTTP call. The library
+// defaults to 60s; 30s is tighter so a stalled qBittorrent can't pin the 2s
+// torrent-monitor loop or a request handler for a full minute.
+const clientTimeoutSeconds = 30
+
 func NewService(url, username, password string) (Service, error) {
 	client := qbittorrent.NewClient(qbittorrent.Config{
 		Host:     url,
 		Username: username,
 		Password: password,
+		Timeout:  clientTimeoutSeconds,
 	})
 	if err := client.LoginCtx(context.Background()); err != nil {
 		return nil, err
@@ -71,15 +77,15 @@ func (s *service) AddTorrent(ctx context.Context, file []byte, savePath, torrent
 		return nil, err
 	}
 
-	all, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{})
+	hash = NormalizeHash(hash)
+	// Look up just this hash instead of fetching the whole torrent list.
+	existing, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{Hashes: []string{hash}})
 	if err != nil {
 		return nil, err
 	}
-	hash = NormalizeHash(hash)
-	for _, t := range all {
-		if NormalizeHash(t.Hash) == hash {
-			return &AddTorrentResponse{Hash: NormalizeHash(t.Hash), Path: t.SavePath, Size: t.Size}, ErrTorrentExists
-		}
+	if len(existing) > 0 {
+		t := existing[0]
+		return &AddTorrentResponse{Hash: NormalizeHash(t.Hash), Path: t.SavePath, Size: t.Size}, ErrTorrentExists
 	}
 
 	if _, err := s.client.AddTorrentFromMemoryCtx(ctx, file, options); err != nil {
@@ -104,11 +110,11 @@ func (s *service) AddTorrent(ctx context.Context, file []byte, savePath, torrent
 // this lets the remove package own both the source-file and hardlink deletes
 // using inode matching, instead of relying on qbit's best-effort cleanup.
 func (s *service) RemoveTorrent(ctx context.Context, hash string) error {
-	return s.client.DeleteTorrents([]string{NormalizeHash(hash)}, false)
+	return s.client.DeleteTorrentsCtx(ctx, []string{NormalizeHash(hash)}, false)
 }
 
 func (s *service) ListTorrents(ctx context.Context) ([]Torrent, error) {
-	torrents, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{
+	torrents, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{
 		Category: CategoryPlexMedia,
 		Sort:     "added_on",
 		Reverse:  true,
@@ -133,7 +139,7 @@ func (s *service) ListTorrentsPaginated(ctx context.Context, page, pageSize int)
 	}
 	offset := (page - 1) * pageSize
 
-	all, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{Category: CategoryPlexMedia})
+	all, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{Category: CategoryPlexMedia})
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +149,7 @@ func (s *service) ListTorrentsPaginated(ctx context.Context, page, pageSize int)
 		totalPages = (totalCount + pageSize - 1) / pageSize
 	}
 
-	torrents, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{
+	torrents, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{
 		Category: CategoryPlexMedia,
 		Sort:     "added_on",
 		Reverse:  true,
@@ -169,7 +175,7 @@ func (s *service) ListTorrentsPaginated(ctx context.Context, page, pageSize int)
 }
 
 func (s *service) GetTorrentFiles(ctx context.Context, hash string) ([]TorrentFile, error) {
-	files, err := s.client.GetFilesInformation(NormalizeHash(hash))
+	files, err := s.client.GetFilesInformationCtx(ctx, NormalizeHash(hash))
 	if err != nil {
 		return nil, err
 	}
@@ -230,18 +236,17 @@ func (s *service) waitForTorrent(ctx context.Context, hash string) (*qbittorrent
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("waiting for torrent canceled")
+			return nil, fmt.Errorf("waiting for torrent canceled: %w", ctx.Err())
 		case <-timeout:
 			return nil, fmt.Errorf("torrent added but not found")
 		case <-ticker.C:
-			torrents, err := s.client.GetTorrents(qbittorrent.TorrentFilterOptions{})
+			// Filter by the single hash instead of scanning the whole list.
+			torrents, err := s.client.GetTorrentsCtx(ctx, qbittorrent.TorrentFilterOptions{Hashes: []string{hash}})
 			if err != nil {
 				return nil, err
 			}
-			for i := range torrents {
-				if NormalizeHash(torrents[i].Hash) == hash {
-					return &torrents[i], nil
-				}
+			if len(torrents) > 0 {
+				return &torrents[0], nil
 			}
 		}
 	}

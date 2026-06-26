@@ -53,11 +53,15 @@ func (r *repository) FindByID(ctx context.Context, id uint) (*Media, error) {
 }
 
 func mediaCountAndSize(db *gorm.DB) (count int64, sizeSum int64, err error) {
-	if err = db.Session(&gorm.Session{}).Count(&count).Error; err != nil {
-		return 0, 0, err
+	var agg struct {
+		Count   int64
+		SizeSum int64
 	}
-	err = db.Session(&gorm.Session{}).Select("COALESCE(SUM(size_bytes), 0)").Scan(&sizeSum).Error
-	return count, sizeSum, err
+	// One aggregate query instead of a separate COUNT and SUM.
+	err = db.Session(&gorm.Session{}).
+		Select("COUNT(*) AS count, COALESCE(SUM(size_bytes), 0) AS size_sum").
+		Scan(&agg).Error
+	return agg.Count, agg.SizeSum, err
 }
 
 func (r *repository) ListPaginated(ctx context.Context, page, pageSize int) ([]Media, int64, int64, error) {

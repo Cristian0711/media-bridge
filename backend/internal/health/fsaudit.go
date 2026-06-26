@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,10 @@ type FSAuditResult struct {
 	Issues        []LinkIssue
 	IssueCount    int
 	Truncated     bool
+	// Cancelled is set when the walk stopped early because ctx was cancelled
+	// (e.g. the audit timed out). The partial result is then incomplete and
+	// must not be read as "everything scanned and OK".
+	Cancelled bool
 }
 
 func AuditRoot(ctx context.Context, root, zone string, ex PathExclusions) FSAuditResult {
@@ -50,7 +55,7 @@ func AuditRoot(ctx context.Context, root, zone string, ex PathExclusions) FSAudi
 		removingDest[filepath.Clean(p)] = struct{}{}
 	}
 
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -126,6 +131,9 @@ func AuditRoot(ctx context.Context, root, zone string, ex PathExclusions) FSAudi
 		return nil
 	})
 
+	if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+		res.Cancelled = true
+	}
 	return res
 }
 
@@ -162,6 +170,12 @@ func FSResultToCheck(id, name string, r FSAuditResult) Check {
 		}
 		msg += "; scan truncated at file limit"
 	}
+	if r.Cancelled {
+		if status == CheckOK {
+			status = CheckWarn
+		}
+		msg += "; scan incomplete (timed out before finishing)"
+	}
 
 	details := map[string]any{
 		"root":           r.Root,
@@ -173,6 +187,7 @@ func FSResultToCheck(id, name string, r FSAuditResult) Check {
 		"issue_count":    r.IssueCount,
 		"issues_sample":  r.Issues,
 		"truncated":      r.Truncated,
+		"cancelled":      r.Cancelled,
 	}
 	return Check{ID: id, Name: name, Status: status, Message: msg, Details: details}
 }

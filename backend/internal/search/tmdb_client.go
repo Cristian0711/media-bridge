@@ -32,11 +32,19 @@ func newTMDBClient(cfg TMDBConfig) *tmdbClient {
 	if base == "" {
 		base = "https://api.themoviedb.org/3"
 	}
+	// The browse warmer fans out many concurrent requests to a single host
+	// (api.themoviedb.org). http.DefaultTransport caps idle connections per host
+	// at 2, forcing repeated TLS handshakes under that fan-out; raise it to match
+	// the warmer's concurrency so connections are reused.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 16
 	return &tmdbClient{
 		baseURL: base,
 		apiKey:  cfg.APIKey,
 		httpClient: &http.Client{
-			Timeout: 12 * time.Second,
+			Timeout:   12 * time.Second,
+			Transport: transport,
 		},
 		log: logger.Named("search.tmdb"),
 	}

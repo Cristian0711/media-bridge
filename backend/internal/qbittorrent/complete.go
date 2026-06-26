@@ -85,10 +85,17 @@ func (s *service) ReadyForLibrary(ctx context.Context, t Torrent, shouldCount fu
 	return s.TorrentFilesComplete(ctx, t.Hash, shouldCount)
 }
 
-// FilesCompleteByHash calls GetTorrentFiles at most once per distinct hash in hashes.
+// filesCompleteConcurrency bounds how many per-hash file lookups run at once.
+// qBittorrent has no batch files endpoint, so each hash is its own HTTP call;
+// the client pools up to 10 connections per host, so 8 is a safe ceiling.
+const filesCompleteConcurrency = 8
+
+// FilesCompleteByHash calls GetTorrentFiles at most once per distinct hash in
+// hashes, fanning the per-hash lookups out with bounded concurrency so a watcher
+// tick with many downloads doesn't serialize N network round-trips.
 func (s *service) FilesCompleteByHash(ctx context.Context, hashes []string, shouldCount func(name string, size int64) bool) (map[string]bool, error) {
 	seen := make(map[string]struct{}, len(hashes))
-	out := make(map[string]bool, len(hashes))
+	unique := make([]string, 0, len(hashes))
 	for _, raw := range hashes {
 		hash := NormalizeHash(raw)
 		if hash == "" {
@@ -98,11 +105,43 @@ func (s *service) FilesCompleteByHash(ctx context.Context, hashes []string, shou
 			continue
 		}
 		seen[hash] = struct{}{}
-		ok, err := s.TorrentFilesComplete(ctx, hash, shouldCount)
-		if err != nil {
-			return nil, err
+		unique = append(unique, hash)
+	}
+
+	out := make(map[string]bool, len(unique))
+	if len(unique) == 0 {
+		return out, nil
+	}
+
+	type result struct {
+		hash string
+		ok   bool
+		err  error
+	}
+	sem := make(chan struct{}, filesCompleteConcurrency)
+	results := make(chan result, len(unique))
+	for _, hash := range unique {
+		sem <- struct{}{}
+		go func(hash string) {
+			defer func() { <-sem }()
+			ok, err := s.TorrentFilesComplete(ctx, hash, shouldCount)
+			results <- result{hash: hash, ok: ok, err: err}
+		}(hash)
+	}
+
+	var firstErr error
+	for range unique {
+		r := <-results
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
-		out[hash] = ok
+		out[r.hash] = r.ok
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return out, nil
 }

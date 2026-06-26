@@ -269,12 +269,20 @@ func buildSourcePath(savePath, filePath string) string {
 	return filepath.Join(savePath, normalizeTorrentPath(filePath))
 }
 
-// hardlinkPresent is true when source exists and dest is the same inode (already linked).
+// hardlinkPresent is true when source exists and dest is the same inode (already
+// linked). It stats the source once and reuses it — this runs per file on every
+// progress poll, so the extra stat that delegating to sameInode would incur is
+// worth avoiding.
 func hardlinkPresent(sourcePath, destPath string) bool {
-	if _, err := os.Lstat(sourcePath); err != nil {
+	si, err := os.Lstat(sourcePath)
+	if err != nil {
 		return false
 	}
-	return sameInode(sourcePath, destPath)
+	di, err := os.Lstat(destPath)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(si, di)
 }
 
 // sameInode reports whether the two paths reference the same underlying inode
