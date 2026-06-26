@@ -28,7 +28,12 @@ func newRouter(
 	r.Use(gin.Recovery())
 	// otelgin is outermost so a span exists for the whole request; it continues
 	// the trace started at nginx (via the W3C traceparent header) when present.
-	r.Use(otelgin.Middleware("media-bridge-backend"))
+	// SSE streams and the internal auth probe are excluded — a long-lived stream
+	// would otherwise produce one sprawling, never-ending span per open
+	// connection (see skipTracing).
+	r.Use(otelgin.Middleware("media-bridge-backend", otelgin.WithGinFilter(func(c *gin.Context) bool {
+		return !skipTracing(c)
+	})))
 	r.Use(contextMiddleware())
 	r.Use(requestLoggerMiddleware())
 

@@ -69,6 +69,17 @@ Rules enforced by `backend/scripts/check-logging.sh` (run in CI):
 
 When you add a new `ERROR`, **add its code to the runbook below** in the same PR.
 
+## What isn't traced (on purpose)
+
+SSE/streaming endpoints (paths ending in `/events`) and the internal nginx
+auth-validate probe are **excluded from tracing** (`skipTracing` in
+`internal/app/middleware.go`). A long-lived SSE connection would otherwise be one
+span open for the whole stream — showing in Tempo as "root span not yet received"
+— accreting a DB-poll span every tick. Those requests still log (with
+`request_id` + actor) so they remain correlatable; they just don't create spans.
+Their poll queries are suppressed via an unsampled parent context so they don't
+become orphan spans either.
+
 ## How to trace (Go)
 
 A span already exists for every HTTP request and queue job. To add a child span
@@ -98,8 +109,14 @@ manually set span status to Error — `logger.Error` does it for you.
 Open **Grafana at http://localhost:3000** → Explore:
 - **Traces:** pick the *Tempo* datasource (search by service / trace id / duration).
 - **Logs:** pick the *Loki* datasource (e.g. `{level="ERROR"}`, `{container="media-bridge-api"}`).
-- A provisioned **"Media Bridge — Observability"** dashboard shows errors-by-code,
-  request error %, and recent ERROR logs.
+- Provisioned dashboards: **"Media Bridge — Observability"** (errors-by-code,
+  request error %, recent ERROR logs) and **"Logging via Loki"** (the community
+  per-service log explorer, grafana.com #18042).
+
+Promtail emits the labels the Loki dashboard expects: `container_name` (docker
+container), `service_name` (compose service), `instance` (node), plus `level` /
+`component` from the JSON. Adjust `instance` in `otel/promtail-config.yaml` if you
+run multiple nodes.
 
 ## Reading it (with correlation wired in Grafana)
 

@@ -18,9 +18,17 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
     relabel_configs:
+      # Labels expected by the community "Logging via Loki" dashboard:
+      #   container_name — the docker container (e.g. media-bridge-api)
+      #   service_name   — the compose service (e.g. backend, nginx)
+      #   instance       — the node (single host here; change per node)
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
-        target_label: container
+        target_label: container_name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service_name
+      - target_label: instance
+        replacement: media-bridge
     pipeline_stages:
       # Parse the JSON line and promote a couple of low-cardinality fields to
       # labels. trace_id is intentionally NOT a label (high cardinality) — it
