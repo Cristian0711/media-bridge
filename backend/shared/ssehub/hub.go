@@ -151,11 +151,26 @@ func (h *Hub) fanOut(log *zap.Logger, message string, warnOnFull bool) {
 	}
 }
 
-// AddClient registers a subscriber.
-func (h *Hub) AddClient(c *Client) { h.addClient <- c }
+// AddClient registers a subscriber. If the hub has already shut down it closes
+// the client instead of blocking forever on the unbuffered channel (the run
+// loop is gone and would never receive).
+func (h *Hub) AddClient(c *Client) {
+	select {
+	case h.addClient <- c:
+	case <-h.shutdown:
+		c.Close()
+	}
+}
 
-// RemoveClient disconnects a subscriber by ID.
-func (h *Hub) RemoveClient(id string) { h.removeClient <- id }
+// RemoveClient disconnects a subscriber by ID. It no-ops once the hub has shut
+// down (the run loop already closed every client), rather than blocking the
+// caller's HTTP goroutine forever on the unbuffered channel.
+func (h *Hub) RemoveClient(id string) {
+	select {
+	case h.removeClient <- id:
+	case <-h.shutdown:
+	}
+}
 
 // ClientCount returns the number of active subscribers.
 func (h *Hub) ClientCount() int {

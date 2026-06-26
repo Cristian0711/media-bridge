@@ -85,6 +85,13 @@ func NewProcessor(
 	}, nil
 }
 
+// Shutdown waits for in-flight download workers to exit (bounded by ctx) and
+// then releases the queue's database pool.
+func (p *Processor) Shutdown(ctx context.Context) {
+	p.queue.Wait(ctx)
+	p.queue.Close()
+}
+
 func (p *Processor) Start(ctx context.Context, workers int) {
 	if workers < 1 {
 		workers = 1

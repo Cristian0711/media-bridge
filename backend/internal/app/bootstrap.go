@@ -191,7 +191,17 @@ func Bootstrap() (*Server, error) {
 	)
 
 	bootstrapped = true
-	return newServer(cfg.Port, router, cancel, appSSEBroker.Shutdown, qbitBroker.Shutdown), nil
+	// Shutdown order: the root worker ctx is cancelled by the Server first, then
+	// these run within the shutdown deadline. Queue processors join their worker
+	// goroutines and close their pools; the SSE brokers close last.
+	return newServer(cfg.Port, router, cancel,
+		requestsProcessor.Shutdown,
+		downloadProcessor.Shutdown,
+		hardlinkProcessor.Shutdown,
+		removeProcessor.Shutdown,
+		func(context.Context) { appSSEBroker.Shutdown() },
+		func(context.Context) { qbitBroker.Shutdown() },
+	), nil
 }
 
 func connectDB(cfg *config.AppConfig) (*gorm.DB, error) {

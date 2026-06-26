@@ -35,6 +35,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 	"unicode"
 
@@ -59,6 +60,13 @@ type Queue[T any] struct {
 	db   *pgxpool.Pool
 	name string // queue_name column — unique per service/job-type
 	opts Options
+
+	// wg tracks the worker and recovery goroutines so Shutdown can join them.
+	wg sync.WaitGroup
+	// recoveryOnce starts the stale-job recovery loop exactly once for this
+	// queue instance (per-instance, not a process-global — so a re-created
+	// queue gets its own recovery loop bound to its own context).
+	recoveryOnce sync.Once
 }
 
 // New creates a Queue for the given queue name.
@@ -77,6 +85,32 @@ func New[T any](db *pgxpool.Pool, name string, opts ...Option) (*Queue[T], error
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 	return &Queue[T]{db: db, name: name, opts: o}, nil
+}
+
+// Wait blocks until every worker and recovery goroutine started on this queue
+// has exited, or until ctx is done — whichever comes first. Workers exit once
+// the context passed to StartWorker is cancelled, so callers should cancel that
+// context before calling Wait. The ctx bound prevents a stuck handler from
+// blocking shutdown indefinitely.
+func (q *Queue[T]) Wait(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		q.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// Close releases the queue's database pool. Call it during shutdown after Wait
+// returns, so in-flight workers don't lose their pool mid-query. Safe to call
+// when the pool was never set (nil).
+func (q *Queue[T]) Close() {
+	if q.db != nil {
+		q.db.Close()
+	}
 }
 
 // EnsureTable creates the shared table and index if they do not already exist.

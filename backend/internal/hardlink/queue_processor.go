@@ -48,12 +48,22 @@ func NewProcessor(databaseURL string, service Service, requestStatus RequestStat
 		processingqueue.LongRunningQueueOptions()...,
 	)
 	if err != nil {
+		pool.Close()
 		return nil, err
 	}
 	if err := q.EnsureTable(context.Background()); err != nil {
+		pool.Close()
 		return nil, err
 	}
 	return &Processor{queue: q, service: service, requestStatus: requestStatus}, nil
+}
+
+// Shutdown waits for in-flight hardlink workers to exit (bounded by ctx) and
+// then releases the queue's database pool. Call from the server's shutdown path
+// after the root worker context has been cancelled.
+func (p *Processor) Shutdown(ctx context.Context) {
+	p.queue.Wait(ctx)
+	p.queue.Close()
 }
 
 // SetRemoveGuard wires the remove queue so hardlink jobs defer while removal runs (H5).

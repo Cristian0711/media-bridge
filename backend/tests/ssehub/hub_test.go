@@ -163,6 +163,35 @@ func TestShutdownClosesClients(t *testing.T) {
 	}
 }
 
+// TestAddRemoveAfterShutdownDoNotBlock guards against the deadlock where
+// AddClient/RemoveClient sent on unbuffered channels that the run loop (already
+// returned after Shutdown) would never receive, leaking the caller's goroutine.
+func TestAddRemoveAfterShutdownDoNotBlock(t *testing.T) {
+	t.Parallel()
+	hub := ssehub.New("test.shutdown.addremove")
+	hub.Shutdown()
+
+	done := make(chan struct{})
+	go func() {
+		c := ssehub.NewClient("late")
+		hub.AddClient(c)         // must not block
+		hub.RemoveClient("late") // must not block
+		// AddClient after shutdown closes the client.
+		select {
+		case <-c.Done():
+		case <-time.After(time.Second):
+			t.Error("client added after shutdown should be closed")
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddClient/RemoveClient blocked after Shutdown")
+	}
+}
+
 func TestRemoveClientStopsDelivery(t *testing.T) {
 	t.Parallel()
 	hub := ssehub.New("test.remove")

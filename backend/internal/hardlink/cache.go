@@ -55,7 +55,7 @@ func (c *cachingService) Progress(ctx context.Context, mediaID uint) (*Progress,
 	if entry, ok := c.cache[mediaID]; ok && now.Before(entry.expiresAt) {
 		p := entry.progress
 		c.mu.Unlock()
-		return p, nil
+		return p.clone(), nil
 	}
 	c.mu.Unlock()
 
@@ -65,7 +65,7 @@ func (c *cachingService) Progress(ctx context.Context, mediaID uint) (*Progress,
 	}
 
 	c.store(mediaID, p, now)
-	return p, nil
+	return p.clone(), nil
 }
 
 func (c *cachingService) ProgressForMedia(ctx context.Context, row *media.Media) (*Progress, error) {
@@ -79,7 +79,7 @@ func (c *cachingService) ProgressForMedia(ctx context.Context, row *media.Media)
 	if entry, ok := c.cache[id]; ok && now.Before(entry.expiresAt) {
 		p := entry.progress
 		c.mu.Unlock()
-		return p, nil
+		return p.clone(), nil
 	}
 	c.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (c *cachingService) ProgressForMedia(ctx context.Context, row *media.Media)
 	}
 
 	c.store(id, p, now)
-	return p, nil
+	return p.clone(), nil
 }
 
 func (c *cachingService) store(mediaID uint, p *Progress, now time.Time) {

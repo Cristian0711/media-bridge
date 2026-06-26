@@ -23,18 +23,28 @@ func main() {
 		log.Fatal("bootstrap failed", zap.Error(err))
 	}
 
+	// Report a server failure back to main over a channel instead of calling
+	// log.Fatal from the goroutine. log.Fatal calls os.Exit, which would skip
+	// graceful shutdown (worker drain, pool close, SSE broker close) and the
+	// deferred logger.Sync.
+	srvErr := make(chan error, 1)
 	go func() {
 		if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal("server failed", zap.Error(err))
+			srvErr <- err
 		}
 	}()
 	log.Info("server started")
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
 
-	log.Info("shutdown signal received, draining")
+	select {
+	case err := <-srvErr:
+		log.Error("server failed, draining", zap.Error(err))
+	case s := <-sig:
+		log.Info("shutdown signal received, draining", zap.String("signal", s.String()))
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

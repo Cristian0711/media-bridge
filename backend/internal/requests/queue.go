@@ -70,6 +70,13 @@ func NewQueueProcessor(
 	}, nil
 }
 
+// Shutdown waits for in-flight requests-queue workers to exit (bounded by ctx)
+// and then releases the queue's database pool.
+func (p *QueueProcessor) Shutdown(ctx context.Context) {
+	p.queue.Wait(ctx)
+	p.queue.Close()
+}
+
 func (p *QueueProcessor) Start(ctx context.Context, workers int) {
 	if workers < 1 {
 		workers = 1

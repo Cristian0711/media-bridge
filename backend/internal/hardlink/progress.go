@@ -26,6 +26,19 @@ type Progress struct {
 	TorrentHash string     `json:"-"` // set when built; used by callers without reloading media
 }
 
+// clone returns a deep copy of the progress, including its slices, so callers
+// (and the progress cache) can hand out independent copies. Mutating one copy —
+// e.g. appending to Done/Remaining — must never race or corrupt another.
+func (p *Progress) clone() *Progress {
+	if p == nil {
+		return nil
+	}
+	cp := *p
+	cp.Done = append([]Artifact(nil), p.Done...)
+	cp.Remaining = append([]Artifact(nil), p.Remaining...)
+	return &cp
+}
+
 func (s *service) Progress(ctx context.Context, mediaID uint) (*Progress, error) {
 	row, err := s.mediaService.GetMediaByID(ctx, mediaID)
 	if err != nil {

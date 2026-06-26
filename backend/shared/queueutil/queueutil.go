@@ -21,9 +21,11 @@ func NewQueue[T any](databaseURL, table string, opts ...processingqueue.Option) 
 	}
 	q, err := processingqueue.New[T](pool, table, opts...)
 	if err != nil {
+		pool.Close()
 		return nil, err
 	}
 	if err := q.EnsureTable(context.Background()); err != nil {
+		pool.Close()
 		return nil, err
 	}
 	return q, nil

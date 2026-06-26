@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +24,11 @@ type HandlerFunc[T any] func(ctx context.Context, job *Job[T]) error
 // to run concurrent workers on the same queue.
 func (q *Queue[T]) StartWorker(ctx context.Context, workerID string, handler HandlerFunc[T]) {
 	q.startRecoveryOnce(ctx)
-	go q.runWorker(ctx, workerID, handler)
+	q.wg.Add(1)
+	go func() {
+		defer q.wg.Done()
+		q.runWorker(ctx, workerID, handler)
+	}()
 }
 
 // Process is the blocking version of StartWorker. It runs in the calling
@@ -37,20 +40,18 @@ func (q *Queue[T]) Process(ctx context.Context, workerID string, handler Handler
 
 // ---- internals ---------------------------------------------------------------
 
-// recoveryOnce ensures the recovery goroutine starts exactly once per Queue,
-// regardless of how many workers are started.
-var recoveryMu sync.Mutex
-var recoveryStarted = map[string]bool{}
-
+// startRecoveryOnce launches the stale-job recovery goroutine exactly once for
+// this Queue instance, regardless of how many workers are started. State lives
+// on the Queue (sync.Once), not in a process-global map, so a freshly created
+// queue always gets a recovery loop bound to its own context.
 func (q *Queue[T]) startRecoveryOnce(ctx context.Context) {
-	key := q.opts.Table + "|" + q.name
-	recoveryMu.Lock()
-	defer recoveryMu.Unlock()
-	if recoveryStarted[key] {
-		return
-	}
-	recoveryStarted[key] = true
-	go q.runRecovery(ctx)
+	q.recoveryOnce.Do(func() {
+		q.wg.Add(1)
+		go func() {
+			defer q.wg.Done()
+			q.runRecovery(ctx)
+		}()
+	})
 }
 
 func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler HandlerFunc[T]) {
@@ -79,11 +80,22 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 			continue
 		}
 
-		handlerCtx, cancelHandler := context.WithCancel(ctx)
+		// Bound the handler by WorkerTimeout so a hung handler (e.g. a stuck
+		// HTTP call) is actually cancelled instead of pinning the worker slot
+		// forever while the DB-side recovery loop requeues the row underneath
+		// it. Handlers must honour ctx for this to take effect.
+		handlerCtx, cancelHandler := context.WithTimeout(ctx, q.opts.WorkerTimeout)
 		stopHeartbeat := q.startLeaseHeartbeat(handlerCtx, job.ID)
 		err = q.invokeHandler(handlerCtx, handler, job)
 		stopHeartbeat()
 		cancelHandler()
+
+		// Record the terminal job state on a context detached from the worker
+		// ctx. If the worker is shutting down (ctx cancelled) or the handler
+		// ctx timed out, reusing those here would fail the write and leave the
+		// row stuck in 'processing' until recovery requeues it a full
+		// WorkerTimeout later.
+		writeCtx, cancelWrite := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 
 		if err != nil {
 			permanent := errors.Is(err, ErrPermanentFailure)
@@ -103,11 +115,11 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 			)
 			switch {
 			case deferRetry:
-				rows, failErr = q.Defer(ctx, job.ID, err)
+				rows, failErr = q.Defer(writeCtx, job.ID, err)
 			case permanent:
-				rows, failErr = q.FailPermanent(ctx, job.ID, err)
+				rows, failErr = q.FailPermanent(writeCtx, job.ID, err)
 			default:
-				rows, failErr = q.Fail(ctx, job.ID, err)
+				rows, failErr = q.Fail(writeCtx, job.ID, err)
 			}
 			if failErr != nil {
 				slog.ErrorContext(ctx, "processingqueue: could not record failure",
@@ -124,7 +136,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 				)
 			}
 		} else {
-			rows, completeErr := q.Complete(ctx, job.ID)
+			rows, completeErr := q.Complete(writeCtx, job.ID)
 			if completeErr != nil {
 				slog.ErrorContext(ctx, "processingqueue: could not mark completed",
 					"queue", q.name,
@@ -142,6 +154,7 @@ func (q *Queue[T]) runWorker(ctx context.Context, workerID string, handler Handl
 				)
 			}
 		}
+		cancelWrite()
 		// No sleep here — immediately try to grab the next job.
 	}
 }
