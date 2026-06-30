@@ -9,6 +9,7 @@ import {
 } from '$lib/browse/api';
 import { fetchWithCache, getCached, invalidatePrefix, isFresh, setCached } from '$lib/data/list-cache';
 import { preloadPosterUrls } from '$lib/utils/poster-preload';
+import { POSTER_CARD_WIDTH } from '$lib/utils/poster-url';
 import type { SearchResult } from '$lib/types/search';
 
 /** Align with backend browse cache (24h). */
@@ -45,7 +46,7 @@ function cacheCatalogRows(catalog: BrowseCatalog): void {
       totalPages: row.totalPages,
     };
     setCached(discoverListCacheKey(row.id, 1), page);
-    preloadPosterUrls(posterUrlsFromResults(row.results));
+    preloadPosterUrls(posterUrlsFromResults(row.results), { width: POSTER_CARD_WIDTH });
   }
 }
 
@@ -110,9 +111,13 @@ export function prefetchDiscover(): void {
 
   const run = async () => {
     try {
+      // Services must resolve first (we need their ids), but the global catalog
+      // is independent — warm it alongside the per-service catalogs in parallel.
       const services = await loadBrowseServicesCached();
-      await loadBrowseGlobalCatalogCached();
-      await Promise.all(services.map((svc) => loadBrowseServiceCatalogCached(svc.id)));
+      await Promise.all([
+        loadBrowseGlobalCatalogCached(),
+        ...services.map((svc) => loadBrowseServiceCatalogCached(svc.id)),
+      ]);
     } catch {
       // best-effort warm
     }

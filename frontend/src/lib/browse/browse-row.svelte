@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Download, Search, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl, toMediaItem } from '$lib/search/map';
+  import { posterAtWidth, POSTER_CARD_WIDTH } from '$lib/utils/poster-url';
   import type { MediaRow } from '$lib/media/media-action-host.svelte';
   import type { SearchResult } from '$lib/types/search';
 
@@ -38,8 +39,11 @@
           <div class="flex h-[19rem] flex-col overflow-hidden rounded-lg border border-border/40 bg-card">
             <div class="relative h-[11.25rem] w-full shrink-0 overflow-hidden bg-muted">
               <img
-                src={posterUrl(row.item.images.poster)}
+                src={posterAtWidth(posterUrl(row.item.images.poster), POSTER_CARD_WIDTH)}
                 alt="{row.item.title} poster"
+                width="120"
+                height="180"
+                decoding="async"
                 class="h-full w-full object-cover"
                 loading="lazy"
               />

@@ -13,6 +13,7 @@
   } from '$lib/data/media-list-cache';
   import { createPaginatedList } from '$lib/data/paginated-list.svelte';
   import { preloadPosterUrls } from '$lib/utils/poster-preload';
+  import { POSTER_THUMB_WIDTH } from '$lib/utils/poster-url';
   import * as mediaApi from '$lib/media/api';
   import { formatSizeGB, toLibraryItem } from '$lib/media/map';
   import { libraryView } from '$lib/data/library-view';
@@ -59,7 +60,7 @@
     meta: (res) => ({ totalPages: res.total_pages, totalCount: res.total_count }),
     onApply: (res, items) => {
       totalSizeBytes = res.total_size_bytes ?? 0;
-      preloadPosterUrls(items.map((i) => i.poster_url));
+      preloadPosterUrls(items.map((i) => i.poster_url), { width: POSTER_THUMB_WIDTH });
     },
     onReloadStart: () => {
       statusMessage = '';

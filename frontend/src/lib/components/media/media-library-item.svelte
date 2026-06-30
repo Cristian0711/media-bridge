@@ -2,7 +2,8 @@
   import { Button } from '$lib/components/ui/button';
   import { ExternalLink, Trash2 } from 'lucide-svelte';
   import PosterThumb from '$lib/components/media/poster-thumb.svelte';
-  import { formatRelativeTime, formatSizeGB, mediaDetail, mediaTypeLabel, posterUrl } from '$lib/media/map';
+  import { formatRelativeTime, formatSizeGB, mediaDetail, mediaTypeLabel } from '$lib/media/map';
+  import { posterAtWidth, POSTER_THUMB_WIDTH } from '$lib/utils/poster-url';
   import type { MediaLibraryItem } from '$lib/types/media-library';
 
   interface Props {
@@ -14,7 +15,7 @@
 
   let { item, onRemove, index = 99 }: Props = $props();
 
-  const imageSrc = $derived(posterUrl(item.poster_url));
+  const imageSrc = $derived(posterAtWidth(item.poster_url, POSTER_THUMB_WIDTH));
   const sizeLabel = $derived(formatSizeGB(item.size_bytes));
 
 </script>
