@@ -99,25 +99,35 @@ ships today.)*
 
 ## Tier 2 — High impact, moderate effort
 
-### 2.1 Add a service worker (app-shell + API SWR cache)
-The app is installed as a PWA (manifest, iOS standalone handling) but **has no service
-worker** — so a repeat/relaunch still hits the network for the shell and all data. A SW is
-the single biggest lever for *repeat-visit* perceived speed and the only one that survives a
-cold app launch.
+### 2.1 Add a service worker (app-shell + API SWR cache)  ✅ applied
+The app is installed as a PWA (manifest, iOS standalone handling) but **had no service
+worker** — so a repeat/relaunch hit the network for the shell and all data. A SW is the
+single biggest lever for *repeat-visit* perceived speed and the only one that survives a cold
+app launch.
 
-**Change (frontend):** add `src/service-worker.ts` (SvelteKit auto-registers it):
-- **Precache the app shell** (`$service-worker`'s `build` + `files`) → instant shell paint
-  offline and on relaunch.
-- **Stale-while-revalidate** the cacheable GET APIs (browse catalog, library/requests
-  page-one) — mirror the in-memory TTLs already in [browse-cache.ts](../frontend/src/lib/data/browse-cache.ts)
-  (24 h for discover) and [list-cache.ts](../frontend/src/lib/data/list-cache.ts) (60 s).
-- **Never cache** SSE (`text/event-stream`), auth, or mutations.
+**Implemented** in [service-worker.ts](../frontend/src/service-worker.ts) (SvelteKit
+auto-registers it), deliberately conservative:
+- **Precache** the content-hashed app assets (`$service-worker`'s `build` + `files`), served
+  **cache-first** — they're immutable, and a new build changes their hashes + `version`, so
+  they never go stale. Old version caches are dropped on `activate`.
+- **Navigations → network-first**, with the cached shell only as an *offline* fallback. This
+  preserves the deliberate `no-store` on `index.html` (the iOS stale-shell guard): an online
+  client always pulls the current shell, so it can never be served stale JS hashes.
+- **Browse catalog (`/api/v1/browse/`) → stale-while-revalidate** for an instant cold launch.
+  This is the *only* API surface cached, because it's global (not per-user). User-scoped
+  lists (library/requests) are intentionally left to the network — the in-memory store
+  already makes them fast in-session, and SW-caching per-user data risks cross-user leakage
+  on a shared device. *(Note: catalogs carry a per-user `available` flag, but the SW cache is
+  per-device/per-user, and SWR revalidates, so this is fine here — see §3.4 for why the same
+  data must NOT be cached at a shared CDN.)*
+- **Never touches** SSE (`*/events`), non-GET requests, or cross-origin (TMDB/fonts).
 
-This complements (doesn't replace) the in-memory cache: the JS cache makes *in-session* tab
-switches instant; the SW makes *relaunch* instant.
+**Rollback:** if it ever misbehaves, ship a no-op `service-worker.ts` (empty install/activate
+that `skipWaiting()` + `clients.claim()` + clears caches) to evict the old one.
 
-**Verify:** second launch paints Home with zero network for shell + catalog; works offline
-for already-seen data.
+**Verify (must run in a real build — couldn't build here on Node 18):** second launch paints
+Home with zero network for shell + catalog; works offline for already-seen data; SSE live
+updates still arrive; a deploy with new asset hashes loads cleanly (no stale shell).
 
 ### 2.2 Skeleton placeholders instead of "Loading…" text
 Pages currently show a text line ("Loading services…", "Searching…", "Loading…") while data
