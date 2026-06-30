@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Search, Download, Calendar, ExternalLink, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl } from '$lib/search/map';
+  import { posterAtWidth, POSTER_THUMB_WIDTH } from '$lib/utils/poster-url';
   import type { MediaItem, MediaType } from '$lib/types/media';
 
   interface Props {
@@ -14,7 +15,7 @@
 
   let { item, mediaType, available = false, onSearch, onDownload }: Props = $props();
 
-  const imageSrc = $derived(posterUrl(item.images.poster));
+  const imageSrc = $derived(posterAtWidth(posterUrl(item.images.poster), POSTER_THUMB_WIDTH));
 </script>
 
 <div
@@ -26,6 +27,9 @@
         <img
           src={imageSrc}
           alt="{item.title} poster"
+          width="44"
+          height="64"
+          decoding="async"
           class="h-full w-full object-cover"
           loading="lazy"
         />

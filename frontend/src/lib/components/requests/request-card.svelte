@@ -4,12 +4,12 @@
   import {
     formatRelativeTime,
     isShowRequest,
-    posterUrl,
     requestActionLabel,
     requestMediaKind,
     showScope,
     statusBadgeClass,
   } from '$lib/requests/map';
+  import { posterAtWidth, POSTER_THUMB_WIDTH } from '$lib/utils/poster-url';
   import type { RequestRow } from '$lib/types/request';
   import { cn } from '$lib/utils';
   import RequestTorrentDialog from './request-torrent-dialog.svelte';
@@ -36,7 +36,7 @@
   let torrentOpen = $state(false);
   let torrentPreparing = $state(false);
 
-  const imageSrc = $derived(posterUrl(request.poster_url));
+  const imageSrc = $derived(posterAtWidth(request.poster_url, POSTER_THUMB_WIDTH));
   const isRemove = $derived(request.type.includes('remove'));
   const isDownload = $derived(request.type.includes('download'));
   const scope = $derived(isShowRequest(request.type) ? showScope(request) : '');

@@ -13,7 +13,12 @@ RUN apk add --no-cache imagemagick \
     # icons from the source first, then normalize icon-512 itself last.
     && magick build/icon-512.png -resize 192x192 -background "#0b0b0f" -gravity center -extent 192x192 build/icon-192.png \
     && magick build/icon-512.png -resize 180x180 -background "#0b0b0f" -gravity center -extent 180x180 build/apple-touch-icon.png \
-    && magick build/icon-512.png -resize 512x512 -background "#0b0b0f" -gravity center -extent 512x512 build/icon-512.png
+    && magick build/icon-512.png -resize 512x512 -background "#0b0b0f" -gravity center -extent 512x512 build/icon-512.png \
+    # Precompress text assets so nginx `gzip_static on` serves *.gz from disk
+    # instead of compressing hashed/immutable assets on every request.
+    && find build -type f \( -name '*.js' -o -name '*.css' -o -name '*.svg' \
+        -o -name '*.json' -o -name '*.webmanifest' -o -name '*.html' \) \
+        -exec gzip -9 -k -f {} \;
 
 FROM openresty/openresty:bullseye
 
