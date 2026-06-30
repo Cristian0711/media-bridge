@@ -46,6 +46,18 @@ function cacheCatalogRows(catalog: BrowseCatalog): void {
       totalPages: row.totalPages,
     };
     setCached(discoverListCacheKey(row.id, 1), page);
+  }
+}
+
+/**
+ * Preload posters for the rows a catalog is about to *display*. Call this only
+ * for the catalog actually on screen (global + the selected service) — NOT for
+ * the catalogs warmed in the background by `prefetchDiscover`. Otherwise a
+ * mobile connection gets flooded with full poster downloads for services the
+ * user isn't even looking at, starving the visible images of bandwidth.
+ */
+export function preloadCatalogPosters(catalog: BrowseCatalog): void {
+  for (const row of catalog.lists) {
     preloadPosterUrls(posterUrlsFromResults(row.results), { width: POSTER_CARD_WIDTH });
   }
 }
