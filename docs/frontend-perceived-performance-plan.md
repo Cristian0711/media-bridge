@@ -146,13 +146,14 @@ just shown before data instead of a text string. Render N skeletons matching the
 > redesign, and reuses existing tokens/sizes. Flag for design sign-off if "no markup change
 > at all" is strict.
 
-### 2.3 Optimistic / instant tab paint from cache (audit the gap)
-Library/Requests already paint from cache via `createPaginatedList`
-([paginated-list.svelte.ts](../frontend/src/lib/data/paginated-list.svelte.ts)). Confirm the
-**search** page and the Discover **service switch** also paint cached data before awaiting —
-e.g. switching streaming services in [+page.svelte](../frontend/src/routes/+page.svelte)
-already reads `getCached` first; make sure no `await` blanks the list before the cached rows
-render. Cheap audit, removes any residual flashes.
+### 2.3 Optimistic / instant tab paint from cache (audit the gap)  ✅ audited — no change needed
+Library/Requests paint from cache via `createPaginatedList`
+([paginated-list.svelte.ts](../frontend/src/lib/data/paginated-list.svelte.ts)), which applies
+the cached page synchronously before any `await`. The Discover **service switch** in
+[+page.svelte](../frontend/src/routes/+page.svelte) already sets `serviceLists` /
+`mergeRowState` from `getCached` *before* the `needsCatalog` fetch, so it doesn't blank.
+**Search** is inherently dynamic (no cache by design — every query refetches), which is
+correct. No residual flashes found; nothing to fix.
 
 ---
 
@@ -181,12 +182,17 @@ the page for the first row in a follow-up.
 services (needed for their ids), then warms the global catalog **and** all per-service
 catalogs together in one `Promise.all`. Shaves one serial round-trip off the background warm.
 
-### 3.4 Backend `Cache-Control` on cacheable GETs
-The browse catalog is server-cached 24 h and library/requests pages are stable for seconds.
-Emitting `Cache-Control: max-age=…, stale-while-revalidate=…` on those responses lets both
-the browser HTTP cache and the new service worker (2.1) revalidate correctly without bespoke
-TTL logic, and lets Cloudflare cache the catalog at the edge. (SSE/auth/mutations stay
-`no-store`.)
+### 3.4 Backend `Cache-Control` on cacheable GETs  ✅ applied (scoped to services)
+Added `Cache-Control: private, max-age=3600, stale-while-revalidate=86400` to
+`BrowseServices` ([handler.go](../backend/internal/search/handler.go)) — the service list is
+not user-specific and rarely changes, so the browser/SW can revalidate instead of refetching.
+
+**Important scoping discovered during impl:** the *catalogs* (`BrowseServiceCatalog` /
+`BrowseGlobalCatalog`) are annotated with a per-user `available` flag via `annotateCatalog`,
+so they are **not** safe for a shared CDN cache (would leak one user's availability to
+another). They're left uncached at the HTTP layer; the service worker still SWR-caches them
+safely because its cache is per-device. `private` (not `public`) is used even on the services
+endpoint since the API is auth-gated. SSE/auth/mutations stay uncached.
 
 ### 3.5 SvelteKit view transitions (optional, design-neutral)
 `onNavigate` + the View Transitions API gives a subtle cross-fade between tabs that hides the
@@ -285,20 +291,21 @@ Lighthouse mobile: "Enable text compression" passes; total transfer weight drops
 | N | **nginx phase — gzip+precompress, open_file_cache, buffering split** ✅ applied | serving | very low | S | **huge** (cold load + every API hit) |
 | 1.2 | Preconnect image.tmdb.org ✅ applied | frontend | very low | XS | medium |
 | 1.3 | Right-size poster sizes ✅ applied | frontend | low | S | **high** (lists) |
-| 2.1 | Service worker (shell + SWR) | frontend | medium | M | **high** (relaunch) |
-| 2.2 | Skeleton placeholders | frontend | low* | M | high (feel) |
-| 2.3 | Audit instant cached paint | frontend | low | S | medium |
-| 3.1 | Self-host/trim font | frontend | low | S | medium |
+| 2.1 | Service worker (shell + SWR) ✅ applied | frontend | medium | M | **high** (relaunch) |
+| 2.2 | Skeleton placeholders ⏸ deferred (touches markup → design sign-off) | frontend | low* | M | high (feel) |
+| 2.3 | Audit instant cached paint ✅ audited, no change | frontend | low | S | medium |
+| 3.1 | Self-host/trim font ⏸ deferred (needs font binaries) | frontend | low | S | medium |
 | 3.2 | Image decode/CLS hints ✅ applied (LCP-priority deferred) | frontend | very low | S | small–medium |
 | 3.3 | Parallelize discover warm ✅ applied | frontend | low | XS | small |
-| 3.4 | Backend Cache-Control | backend | low | S | medium (w/ 2.1) |
-| 3.5 | View transitions | frontend | low | S | small (feel) |
+| 3.4 | Backend Cache-Control ✅ applied (scoped to services) | backend | low | S | medium (w/ 2.1) |
+| 3.5 | View transitions ⏸ deferred (animation = design change) | frontend | low | S | small (feel) |
 
 \* 2.2 is the only item that adds markup (a loading state); everything else is invisible to
 the rendered UI.
 
-**Recommended path:** 1.1 → 1.2 → 1.3 (one afternoon, mostly serving + a URL helper) →
-2.1 → 2.2 → the Tier 3 polish as time allows.
+**Deferred items** all touch the design or need assets outside this pass: 2.2 (skeletons add
+markup), 3.1 (needs self-hosted woff2 binaries), 3.5 (a cross-fade is a visual change).
+Per the "do not change the design" constraint they're left for explicit sign-off.
 
 **Verification each step:** `npm run check` stays green; Lighthouse mobile before/after
 (watch LCP, "Enable text compression," "Properly size images," total byte weight); manual

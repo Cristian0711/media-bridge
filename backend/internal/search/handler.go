@@ -80,6 +80,12 @@ func (h *Handler) BrowseServices(c *gin.Context) {
 	if services == nil {
 		services = []BrowseService{}
 	}
+	// The service list (names/logos) is not user-specific and rarely changes, so
+	// let the browser/service-worker revalidate it instead of refetching. `private`
+	// (not `public`) keeps it out of shared caches since the endpoint is auth-gated.
+	// The catalogs are deliberately NOT cached here: they carry a per-user
+	// `available` flag, so a shared cache would leak availability across users.
+	c.Header("Cache-Control", "private, max-age=3600, stale-while-revalidate=86400")
 	c.JSON(http.StatusOK, services)
 }
 
