@@ -11,6 +11,7 @@
     loadBrowseGlobalCatalogCached,
     loadBrowseServiceCatalogCached,
     loadBrowseServicesCached,
+    preloadCatalogPosters,
   } from '$lib/data/browse-cache';
   import { getCached } from '$lib/data/list-cache';
   import { prefetchTabLists } from '$lib/data/prefetch-tabs';
@@ -66,6 +67,7 @@
     if (cachedGlobalCatalog) {
       globalLists = listsFromCatalog(cachedGlobalCatalog);
       mergeRowState(applyBrowseCatalogToRowState(cachedGlobalCatalog));
+      preloadCatalogPosters(cachedGlobalCatalog);
     }
 
     try {
@@ -79,6 +81,7 @@
         const globalCatalog = await loadBrowseGlobalCatalogCached();
         globalLists = listsFromCatalog(globalCatalog);
         mergeRowState(applyBrowseCatalogToRowState(globalCatalog));
+        preloadCatalogPosters(globalCatalog);
       }
 
       if (services.length > 0) {
@@ -106,6 +109,7 @@
     if (cachedCatalog) {
       serviceLists = listsFromCatalog(cachedCatalog);
       mergeRowState(applyBrowseCatalogToRowState(cachedCatalog));
+      preloadCatalogPosters(cachedCatalog);
     }
 
     try {
@@ -114,6 +118,7 @@
         const catalog = await loadBrowseServiceCatalogCached(id);
         serviceLists = listsFromCatalog(catalog);
         mergeRowState(applyBrowseCatalogToRowState(catalog));
+        preloadCatalogPosters(catalog);
       }
     } catch (e) {
       pageError = e instanceof ApiError ? e.message : 'Failed to load service';

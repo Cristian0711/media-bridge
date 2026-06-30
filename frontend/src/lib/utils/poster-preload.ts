@@ -9,6 +9,25 @@ export function isPosterPreloaded(url: string): boolean {
   return loaded.has(url);
 }
 
+/**
+ * Skip eager poster preloading on constrained connections. Preloading is a
+ * bandwidth gamble — it's only a win when there's spare bandwidth to warm the
+ * cache ahead of the `<img>`. Under Save-Data or a slow radio it backfires by
+ * competing with the posters actually on screen, so we let those load on demand
+ * (the `<img>` tags are still lazy) instead.
+ */
+function preloadDisabled(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const conn = (
+    navigator as Navigator & {
+      connection?: { saveData?: boolean; effectiveType?: string };
+    }
+  ).connection;
+  if (!conn) return false;
+  if (conn.saveData) return true;
+  return conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g';
+}
+
 /** Options shared by the poster preloaders. `width` MUST match the rendition the
  *  matching `<img>` requests, or the preloaded entry won't be a cache hit. */
 type PreloadOptions = { width?: PosterWidth; limit?: number };
@@ -17,7 +36,7 @@ export function preloadPosterUrls(
   urls: Iterable<string | undefined | null>,
   options: PreloadOptions = {},
 ): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || preloadDisabled()) return;
 
   const { width, limit = 24 } = options;
   let count = 0;
