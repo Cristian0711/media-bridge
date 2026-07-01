@@ -1,0 +1,215 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: media-bridge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: media-bridge-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Overrides / supplements .env (DATABASE_URL is built from compose vars)
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: ${PORT:-8080}
+      TMDB_URL: ${TMDB_URL:-https://api.themoviedb.org/3}
+      TMDB_API_KEY: ${TMDB_API_KEY}
+      # --- Observability (traces) ---
+      # Export OTLP/gRPC to the collector. Set OTEL_TRACES_EXPORTER=none to disable.
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      # Head-sample everything; the collector tail-samples (keeps all errors).
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production,service.namespace=media-bridge}
+      APP_VERSION: ${APP_VERSION:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /mnt/plexmedia/:/mnt/plexmedia/
+    expose:
+      - "${PORT:-8080}"
+    networks:
+      - backend-net
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: media-bridge-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - backend-net
+
+  # ---------------- OPENTELEMETRY COLLECTOR ----------------
+  # Vendor-neutral telemetry sink. Receives OTLP from the backend and routes it
+  # to your trace backend (see otel/collector-config.yaml). Swap backends there
+  # with no app changes.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: media-bridge-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    expose:
+      - "4317" # OTLP gRPC
+      - "4318" # OTLP HTTP
+      - "8889" # Prometheus metrics (app_log_errors_total, etc.)
+    depends_on:
+      - tempo
+    networks:
+      - backend-net
+
+  # ---------------- TRACES (Tempo) ----------------
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: media-bridge-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./otel/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    expose:
+      - "3200" # Tempo query API (Grafana)
+      - "4317" # OTLP gRPC (from the collector)
+    networks:
+      - backend-net
+
+  # ---------------- LOGS (Loki + Promtail) ----------------
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: media-bridge-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./otel/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
+    expose:
+      - "3100"
+    networks:
+      - backend-net
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: media-bridge-promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail-config.yaml"]
+    volumes:
+      - ./otel/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - backend-net
+
+  # ---------------- METRICS (Prometheus) ----------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: media-bridge-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./otel/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    networks:
+      - backend-net
+
+  # ---------------- GRAFANA ----------------
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: media-bridge-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./otel/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./otel/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    networks:
+      - backend-net
+
+  # ---------------- CLOUDFLARE TUNNEL ----------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run
+    env_file:
+      - .env
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+  # qbittorrent runs outside this stack (or on host). Uncomment if you want it in compose.
+  # qbittorrent:
+  #   image: lscr.io/linuxserver/qbittorrent:latest
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - WEBUI_PORT=8080
+  #   ports:
+  #     - 8080:8080
+  #     - 6881:6881
+  #     - 6881:6881/udp
+  #   volumes:
+  #     - /mnt/plexmedia:/mnt/plexmedia
+  #   restart: unless-stopped
+  #   networks:
+  #     - backend-net
+
+volumes:
+  postgres_data:
+  tempo_data:
+  loki_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  backend-net:
+    name: backend-net

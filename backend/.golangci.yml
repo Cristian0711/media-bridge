@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - misspell
+    - unconvert
+    - bodyclose
+  settings:
+    errcheck:
+      check-type-assertions: true
+    misspell:
+      # Domain term in this codebase; not the word "hardline".
+      ignore-rules:
+        - hardlinked
+  exclusions:
+    rules:
+      # Test helpers frequently ignore errors on cleanup paths.
+      - path: _test\.go
+        linters:
+          - errcheck

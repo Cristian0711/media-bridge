@@ -1,0 +1,42 @@
+# Promtail — discovers Docker containers and ships their stdout to Loki. The
+# backend already logs JSON with trace_id/span_id/actor, so we keep low-cardinality
+# labels (container, level) and leave trace_id in the line for Grafana's derived
+# field to turn into a clickable link to Tempo.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Labels expected by the community "Logging via Loki" dashboard:
+      #   container_name — the docker container (e.g. media-bridge-api)
+      #   service_name   — the compose service (e.g. backend, nginx)
+      #   instance       — the node (single host here; change per node)
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container_name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service_name
+      - target_label: instance
+        replacement: media-bridge
+    pipeline_stages:
+      # Parse the JSON line and promote a couple of low-cardinality fields to
+      # labels. trace_id is intentionally NOT a label (high cardinality) — it
+      # stays in the log content for the Loki→Tempo derived field.
+      - json:
+          expressions:
+            level: level
+            component: component
+      - labels:
+          level:
+          component:

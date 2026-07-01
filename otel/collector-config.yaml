@@ -1,0 +1,94 @@
+# OpenTelemetry Collector config for media-bridge.
+#
+# The backend exports OTLP/gRPC to this collector (see docker-compose). The
+# collector is the vendor-neutral seam: point the exporters below at whatever
+# backend you run (Grafana Tempo, Jaeger, etc.) without touching app code.
+#
+# Image: otel/opentelemetry-collector-contrib (tail_sampling lives in contrib).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Tail sampling needs to see all spans of a trace before deciding — fine for a
+  # single backend instance. The app head-samples at 100% (OTEL_TRACES_SAMPLER_ARG=1.0)
+  # so the collector makes the real keep/drop call here.
+  tail_sampling:
+    # Hold a trace this long to collect all its spans before deciding. Also the
+    # minimum delay before a kept trace is queryable in Tempo.
+    decision_wait: 5s
+    num_traces: 50000
+    policies:
+      # Always keep traces that contain an error span — failures are never dropped.
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Keep anything slow (tune to your SLO).
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 2000
+      # Keep everything else too. This is a low-volume self-hosted app, so 100%
+      # keeps every log's trace_id resolvable in Tempo (no "404 not found" when
+      # you click a trace id from a log). Lower this percentage if trace volume
+      # ever becomes a storage concern — but then fast/success traces a log links
+      # to may not exist.
+      - name: keep-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 100
+  batch: {}
+
+connectors:
+  # Derives RED metrics (request/job rate, latency histogram, error count) from
+  # the spans the backend already emits — HTTP requests (otelgin), queue jobs
+  # ("queue.process <name>"), DB queries, external calls. No app code needed.
+  # The chosen dimensions become metric labels for per-route / per-actor slicing.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+    dimensions:
+      - name: http.route
+      - name: http.response.status_code
+      - name: actor.type
+    metrics_flush_interval: 15s
+
+exporters:
+  # Works out of the box: prints a span/metric summary to the collector's stdout
+  # so you can confirm the pipeline end-to-end before wiring a real backend.
+  debug:
+    verbosity: normal
+
+  # Exposes metrics (incl. app_log_errors_total) for Prometheus to scrape on
+  # :8889. Alert on app_log_errors_total by `code`.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+  # Traces → Grafana Tempo.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling, batch]
+      # spanmetrics consumes spans to generate RED metrics; otlp/tempo stores them.
+      exporters: [otlp/tempo, spanmetrics, debug]
+    metrics:
+      # otlp = app metrics (app_log_errors_total); spanmetrics = trace-derived RED.
+      receivers: [otlp, spanmetrics]
+      processors: [batch]
+      exporters: [debug, prometheus]
+  telemetry:
+    logs:
+      level: info

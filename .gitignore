@@ -1,0 +1,49 @@
+# ─── Secrets (never commit) ───────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Dependencies ─────────────────────────────────────────
+**/node_modules
+**/vendor
+
+# ─── Build output / artifacts ─────────────────────────────
+**/.svelte-kit
+frontend/build
+frontend/.vite
+backend/tmp
+backend/bin
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.zip
+*.tar.gz
+
+# ─── AI / working docs (phase guides, not shipped) ────────
+docs/
+
+# ─── Project-specific ─────────────────────────────────────
+media-search-ms
+design
+
+# ─── Logs & runtime data ──────────────────────────────────
+*.log
+logs/
+*.pid
+coverage/
+*.coverage
+*.cover
+
+# ─── Editors / tooling ────────────────────────────────────
+.vscode
+.idea
+*.swp
+*.swo
+
+# ─── OS cruft ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
