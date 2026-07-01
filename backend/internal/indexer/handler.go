@@ -23,7 +23,7 @@ func (h *Handler) ListIndexers(c *gin.Context) {
 	catalog := h.svc.ListIndexerCatalog(c.Request.Context())
 	out := make([]indexerInfo, 0, len(catalog))
 	for _, idx := range catalog {
-		out = append(out, indexerInfo{ID: idx.ID, Name: idx.Name, Enabled: idx.Enabled})
+		out = append(out, indexerInfo(idx))
 	}
 	c.JSON(http.StatusOK, gin.H{"indexers": out})
 }

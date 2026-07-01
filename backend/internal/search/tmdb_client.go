@@ -38,7 +38,8 @@ func newTMDBClient(cfg TMDBConfig) *tmdbClient {
 	// (api.themoviedb.org). http.DefaultTransport caps idle connections per host
 	// at 2, forcing repeated TLS handshakes under that fan-out; raise it to match
 	// the warmer's concurrency so connections are reused.
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, _ := http.DefaultTransport.(*http.Transport)
+	transport := defaultTransport.Clone()
 	transport.MaxIdleConns = 100
 	transport.MaxIdleConnsPerHost = 16
 	return &tmdbClient{

@@ -279,7 +279,7 @@ func (r *repository) FindByID(ctx context.Context, id uint) (*Request, error) {
 // commits, at which point its findExisting sees the new row. No-op on dialects
 // without advisory locks (e.g. SQLite in tests, where access is serialized).
 func dedupAdvisoryLock(tx *gorm.DB, scope string) error {
-	if tx.Dialector.Name() != "postgres" {
+	if tx.Name() != "postgres" {
 		return nil
 	}
 	h := fnv.New64a()
