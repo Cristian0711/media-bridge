@@ -3,7 +3,14 @@ package indexer
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
+
+// isFileList reports whether the release came from the FileList indexer, which
+// is exempt from the freeleech-only filter (non-freeleech results are shown).
+func isFileList(indexerName string) bool {
+	return strings.Contains(strings.ToLower(indexerName), "filelist")
+}
 
 // pickBestFreeleechMovie returns the highest-seeded freeleech torrent for the given quality.
 func pickBestFreeleechMovie(movies []Movie, quality string) (Movie, error) {
@@ -61,6 +68,9 @@ func filterAndSortMovies(movies []Movie, quality string) []Movie {
 		if m.Seeders == 0 {
 			continue
 		}
+		if m.Freeleech != 1 && !isFileList(m.IndexerName) {
+			continue
+		}
 		if quality != "" && canonicalQuality(m.Quality) != canonicalQuality(quality) {
 			continue
 		}
@@ -80,6 +90,9 @@ func filterAndSortMovies(movies []Movie, quality string) []Movie {
 func filterAndSortShows(shows []Show, season, episode int, quality string) (parsed []Show, unparsed []Show) {
 	for _, s := range shows {
 		if s.Seeders == 0 {
+			continue
+		}
+		if s.Freeleech != 1 && !isFileList(s.IndexerName) {
 			continue
 		}
 		if quality != "" && canonicalQuality(s.Quality) != canonicalQuality(quality) {
