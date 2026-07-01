@@ -193,6 +193,9 @@ func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSea
 	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
 		trace.WithAttributes(attribute.Int("raw_items", len(items))))
 	movies := processMovieItems(pctx, items)
+	// Cross-seed counts are computed over every raw result, before freeleech
+	// filtering, so the count reflects all indexers regardless of what survives.
+	annotateMovieCrossSeed(movies)
 	movies = filterAndSortMovies(movies, req.Quality, s.buildFreeleechPolicy(ctx))
 	pspan.SetAttributes(attribute.Int("results", len(movies)))
 	pspan.End()
@@ -225,6 +228,9 @@ func (s *Service) SearchShows(ctx context.Context, req SearchRequest) (ShowSearc
 	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
 		trace.WithAttributes(attribute.Int("raw_items", len(items))))
 	shows := processShowItems(pctx, items)
+	// Cross-seed counts are computed over every raw result, before freeleech
+	// filtering, so the count reflects all indexers regardless of what survives.
+	annotateShowCrossSeed(shows)
 	parsed, unparsed := filterAndSortShows(shows, req.Season, req.Episode, req.Quality, s.buildFreeleechPolicy(ctx))
 	pspan.SetAttributes(attribute.Int("results", len(parsed)+len(unparsed)))
 	pspan.End()

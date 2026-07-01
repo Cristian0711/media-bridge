@@ -12,6 +12,8 @@ export type IndexerTorrent = {
   download_link: string;
   quality: string;
   indexer_name: string;
+  /** Distinct indexers carrying this release (pre-filter). >1 = cross-seedable. */
+  cross_seed_count: number;
 };
 
 export type IndexerMovie = IndexerTorrent;
