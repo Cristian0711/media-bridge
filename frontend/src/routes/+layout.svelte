@@ -65,7 +65,7 @@
   );
 
   $effect(() => {
-    if (!onSearch) {
+    if (!onSearch && !onLibrary) {
       clearSearchInputFocused();
     }
   });

@@ -20,6 +20,7 @@
   import { removeMovie, removeShow } from '$lib/requests/api';
   import { mediaListVersion } from '$lib/sse/live-updates';
   import { infiniteScroll } from '$lib/utils/infinite-scroll';
+  import { setSearchInputFocused } from '$lib/navigation/search-ui.svelte';
   import type { LibraryView } from '$lib/data/library-view';
   import type { MediaLibraryItem as LibraryItem, PaginatedMediaResponse } from '$lib/types/media-library';
   import { Film, Loader2, RefreshCw, Search, Users } from 'lucide-svelte';
@@ -201,6 +202,8 @@
           class="h-9 pl-10"
           bind:value={searchQuery}
           onkeydown={onSearchKeydown}
+          onfocus={() => setSearchInputFocused(true)}
+          onblur={() => setSearchInputFocused(false)}
         />
       </div>
       {#if searchQuery.trim()}
