@@ -35,8 +35,8 @@ func TestParseSeasonEpisode(t *testing.T) {
 func TestFilterAndSortShows_SpecialsAreParsed(t *testing.T) {
 	t.Parallel()
 	shows := []Show{
-		{Name: "Special", Season: 0, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p"},
-		{Name: "Garbage", Season: 0, Parsed: false, Seeders: 5, Quality: "1080p"},
+		{Name: "Special", Season: 0, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 1},
+		{Name: "Garbage", Season: 0, Parsed: false, Seeders: 5, Quality: "1080p", Freeleech: 1},
 	}
 	parsed, unparsed := filterAndSortShows(shows, 0, 0, "")
 	if len(parsed) != 1 || parsed[0].Name != "Special" {
@@ -44,5 +44,53 @@ func TestFilterAndSortShows_SpecialsAreParsed(t *testing.T) {
 	}
 	if len(unparsed) != 1 || unparsed[0].Name != "Garbage" {
 		t.Fatalf("expected only unparseable in unparsed bucket, got %+v", unparsed)
+	}
+}
+
+func TestFilterAndSortShows_DropsNonFreeleech(t *testing.T) {
+	t.Parallel()
+	shows := []Show{
+		{Name: "Free", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 1, IndexerName: "TorrentLeech"},
+		{Name: "Paid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
+	}
+	parsed, _ := filterAndSortShows(shows, 0, 0, "")
+	if len(parsed) != 1 || parsed[0].Name != "Free" {
+		t.Fatalf("expected only freeleech show, got %+v", parsed)
+	}
+}
+
+func TestFilterAndSortShows_FileListExemptFromFreeleech(t *testing.T) {
+	t.Parallel()
+	shows := []Show{
+		{Name: "FLPaid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "FileList.io"},
+		{Name: "TLPaid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
+	}
+	parsed, _ := filterAndSortShows(shows, 0, 0, "")
+	if len(parsed) != 1 || parsed[0].Name != "FLPaid" {
+		t.Fatalf("expected non-freeleech FileList show kept, other dropped, got %+v", parsed)
+	}
+}
+
+func TestFilterAndSortMovies_DropsNonFreeleech(t *testing.T) {
+	t.Parallel()
+	movies := []Movie{
+		{Name: "Free", Seeders: 5, Quality: "1080p", Freeleech: 1, IndexerName: "TorrentLeech"},
+		{Name: "Paid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
+	}
+	filtered := filterAndSortMovies(movies, "")
+	if len(filtered) != 1 || filtered[0].Name != "Free" {
+		t.Fatalf("expected only freeleech movie, got %+v", filtered)
+	}
+}
+
+func TestFilterAndSortMovies_FileListExemptFromFreeleech(t *testing.T) {
+	t.Parallel()
+	movies := []Movie{
+		{Name: "FLPaid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "FileList.io"},
+		{Name: "TLPaid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
+	}
+	filtered := filterAndSortMovies(movies, "")
+	if len(filtered) != 1 || filtered[0].Name != "FLPaid" {
+		t.Fatalf("expected non-freeleech FileList movie kept, other dropped, got %+v", filtered)
 	}
 }
