@@ -6,7 +6,7 @@ import (
 
 	"github.com/Cristian0711/media-bridge/backend/internal/media"
 	"github.com/Cristian0711/media-bridge/backend/internal/sse"
-	"github.com/Cristian0711/media-bridge/backend/tests/testhelpers"
+	"github.com/Cristian0711/media-bridge/backend/internal/testhelpers"
 )
 
 func TestDeleteMovieMediaCascade_RemovesMediaAndMovie(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/Cristian0711/media-bridge/backend/internal/download"
 	"github.com/Cristian0711/media-bridge/backend/internal/qbittorrent"
-	"github.com/Cristian0711/media-bridge/backend/tests/testhelpers"
+	"github.com/Cristian0711/media-bridge/backend/internal/testhelpers"
 )
 
 type stubDownloader struct {

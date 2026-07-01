@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
-	"github.com/Cristian0711/media-bridge/backend/tests/testhelpers"
+	"github.com/Cristian0711/media-bridge/backend/internal/testhelpers"
 	"gorm.io/gorm"
 )
 
