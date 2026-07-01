@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"github.com/Cristian0711/media-bridge/backend/internal/testhelpers"
+	processingqueue "github.com/Cristian0711/media-bridge/backend/shared/processing-queue"
 	"gorm.io/gorm"
 )
 
