@@ -24,11 +24,11 @@
 </script>
 
 <nav
-  use:pinLayoutBottom={onSearch && $searchInputFocused}
+  use:pinLayoutBottom={(onSearch || onLibrary) && $searchInputFocused}
   class="bottom-chrome z-50 flex w-full flex-col items-center gap-3 px-4"
   aria-label="Main navigation"
 >
-  {#if onLibrary}
+  {#if onLibrary && !$searchInputFocused}
     <div class="flex w-full justify-center">
       <ViewTabs
         tabs={libraryTabs}
@@ -56,7 +56,7 @@
     </div>
   {/if}
 
-  {#if !onSearch || !$searchInputFocused}
+  {#if (!onSearch && !onLibrary) || !$searchInputFocused}
     <div class="bottom-chrome-tabs w-full flex justify-center">
       <TabBar />
     </div>
