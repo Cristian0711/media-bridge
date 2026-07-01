@@ -13,9 +13,13 @@ import (
 // Settings are keyed by indexer name because that is what search results carry
 // (IndexerItem.IndexerName), matching the Prowlarr catalog entry name.
 type IndexerSetting struct {
-	ID            uint      `gorm:"primaryKey" json:"-"`
-	IndexerName   string    `gorm:"uniqueIndex;not null" json:"indexer_name"`
-	FreeleechOnly bool      `gorm:"not null;default:true" json:"freeleech_only"`
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	IndexerName string `gorm:"uniqueIndex;not null" json:"indexer_name"`
+	// No GORM `default` tag: with a default, GORM omits the field from INSERT
+	// when it is the zero value (false), so toggling an indexer to "include all"
+	// would silently persist as freeleech-only. The application layer supplies
+	// the freeleech-only default for unconfigured indexers (see freeleechPolicy).
+	FreeleechOnly bool      `gorm:"not null" json:"freeleech_only"`
 	CreatedAt     time.Time `json:"-"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -43,10 +47,16 @@ func (r *settingsRepository) List(ctx context.Context) ([]IndexerSetting, error)
 
 func (r *settingsRepository) Upsert(ctx context.Context, indexerName string, freeleechOnly bool) (*IndexerSetting, error) {
 	setting := &IndexerSetting{IndexerName: strings.TrimSpace(indexerName), FreeleechOnly: freeleechOnly}
+	// Explicit assignments (not AssignmentColumns) so the on-conflict UPDATE writes
+	// the literal freeleechOnly value rather than reading it back from the proposed
+	// insert row, which is robust regardless of GORM zero-value handling.
 	err := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "indexer_name"}},
-			DoUpdates: clause.AssignmentColumns([]string{"freeleech_only", "updated_at"}),
+			Columns: []clause.Column{{Name: "indexer_name"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"freeleech_only": freeleechOnly,
+				"updated_at":     time.Now(),
+			}),
 		}).
 		Create(setting).Error
 	if err != nil {
