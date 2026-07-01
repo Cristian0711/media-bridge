@@ -47,3 +47,6 @@ coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# local reference clone (not part of the project)
+/cross-seed/
