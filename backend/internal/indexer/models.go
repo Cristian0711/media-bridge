@@ -36,6 +36,10 @@ type Movie struct {
 	DownloadLink string `json:"download_link"`
 	Quality      string `json:"quality"`
 	IndexerName  string `json:"indexer_name"`
+	// CrossSeedCount is the number of distinct indexers carrying this release,
+	// computed over all raw results before freeleech filtering. >1 means the
+	// release is cross-seedable.
+	CrossSeedCount int `json:"cross_seed_count"`
 }
 
 type Show struct {
@@ -55,4 +59,8 @@ type Show struct {
 	Episode      int    `json:"episode"`
 	Complete     bool   `json:"complete_season"`
 	Parsed       bool   `json:"-"` // true when a season tag was matched; distinguishes S00 specials from unparseable
+	// CrossSeedCount is the number of distinct indexers carrying this release,
+	// computed over all raw results before freeleech filtering. >1 means the
+	// release is cross-seedable.
+	CrossSeedCount int `json:"cross_seed_count"`
 }

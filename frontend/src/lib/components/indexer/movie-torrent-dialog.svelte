@@ -145,6 +145,7 @@
               size={movie.size}
               seeders={movie.seeders}
               leechers={movie.leechers}
+              crossSeedCount={movie.cross_seed_count}
               {downloading}
               onDownload={() => handleDownload(movie)}
             />

@@ -3,7 +3,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import { formatGbFixed } from '$lib/utils/format-size';
-  import { Download, Users, ArrowDownToLine, HardDrive } from 'lucide-svelte';
+  import { Download, Users, ArrowDownToLine, HardDrive, Layers } from 'lucide-svelte';
 
   interface Props {
     name: string;
@@ -18,6 +18,8 @@
     onDownload: () => void;
     /** Amber border variant used for unparsed results. */
     unparsed?: boolean;
+    /** Distinct indexers carrying this release; a badge shows when > 1. */
+    crossSeedCount?: number;
     /** Extra badges rendered between the quality and category badges. */
     extraBadges?: Snippet;
   }
@@ -34,6 +36,7 @@
     downloading,
     onDownload,
     unparsed = false,
+    crossSeedCount = 1,
     extraBadges,
   }: Props = $props();
 </script>
@@ -62,6 +65,15 @@
     <Badge variant="outline">{category}</Badge>
     {#if freeleech === 1}
       <Badge variant="default" class="bg-green-600">Freeleech</Badge>
+    {/if}
+    {#if crossSeedCount > 1}
+      <Badge
+        variant="default"
+        class="bg-sky-600"
+        title="Found on {crossSeedCount} indexers — cross-seedable"
+      >
+        <Layers class="mr-1 h-3 w-3" />Cross-seed ×{crossSeedCount}
+      </Badge>
     {/if}
   </div>
   <div class="flex flex-wrap gap-3 text-[0.65rem] text-muted-foreground">
