@@ -97,6 +97,7 @@ func Bootstrap() (*Server, error) {
 	userSvc := users.NewService(userRepo)
 	authSvc := auth.NewService(authRepo, userSvc, jwtManager)
 	indexerSvc := indexersetup.NewService(cfg.Indexer)
+	indexerSvc.SetSettingsRepository(indexer.NewSettingsRepository(db))
 	qbitSvc, err := qbittorrent.NewService(
 		cfg.QBittorrent.URL,
 		cfg.QBittorrent.Username,
@@ -236,6 +237,7 @@ func migrate(db *gorm.DB) error {
 		&media.Show{},
 		&media.ShowEntry{},
 		&media.Media{},
+		&indexer.IndexerSetting{},
 	); err != nil {
 		return err
 	}

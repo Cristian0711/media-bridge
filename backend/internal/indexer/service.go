@@ -33,8 +33,18 @@ type CatalogEntry struct {
 type Service struct {
 	indexers map[string]Provider
 	catalog  CatalogLister
+	settings SettingsRepository
 	mu       sync.RWMutex
 	log      *slog.Logger
+}
+
+// IndexerSettingView is one row in the admin indexer-configuration panel: a
+// catalog indexer plus its resolved freeleech preference.
+type IndexerSettingView struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Enabled       bool   `json:"enabled"`
+	FreeleechOnly bool   `json:"freeleech_only"`
 }
 
 type MovieSearchResponse struct {
@@ -71,6 +81,68 @@ func (s *Service) SetCatalog(cat CatalogLister) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.catalog = cat
+}
+
+// SetSettingsRepository wires the persistent per-indexer settings store. When
+// unset, searches fall back to the freeleech-only default for every indexer.
+func (s *Service) SetSettingsRepository(repo SettingsRepository) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = repo
+}
+
+// buildFreeleechPolicy loads the configured per-indexer freeleech preferences.
+// Any load failure degrades to the conservative freeleech-only default.
+func (s *Service) buildFreeleechPolicy(ctx context.Context) freeleechPolicy {
+	s.mu.RLock()
+	repo := s.settings
+	s.mu.RUnlock()
+	if repo == nil {
+		return freeleechPolicy{}
+	}
+	list, err := repo.List(ctx)
+	if err != nil {
+		s.log.WarnContext(ctx, "indexer settings load failed, using freeleech-only default", logger.Err(err))
+		return freeleechPolicy{}
+	}
+	byName := make(map[string]bool, len(list))
+	for _, it := range list {
+		byName[strings.ToLower(strings.TrimSpace(it.IndexerName))] = it.FreeleechOnly
+	}
+	return freeleechPolicy{byName: byName}
+}
+
+// ListIndexerSettings returns the indexer catalog merged with each indexer's
+// resolved freeleech preference, for the admin configuration panel.
+func (s *Service) ListIndexerSettings(ctx context.Context) []IndexerSettingView {
+	policy := s.buildFreeleechPolicy(ctx)
+	catalog := s.ListIndexerCatalog(ctx)
+	out := make([]IndexerSettingView, 0, len(catalog))
+	for _, e := range catalog {
+		out = append(out, IndexerSettingView{
+			ID:            e.ID,
+			Name:          e.Name,
+			Enabled:       e.Enabled,
+			FreeleechOnly: policy.freeleechOnly(e.Name),
+		})
+	}
+	return out
+}
+
+// UpdateIndexerSetting persists the freeleech preference for a single indexer.
+func (s *Service) UpdateIndexerSetting(ctx context.Context, indexerName string, freeleechOnly bool) error {
+	name := strings.TrimSpace(indexerName)
+	if name == "" {
+		return fmt.Errorf("indexer_name is required")
+	}
+	s.mu.RLock()
+	repo := s.settings
+	s.mu.RUnlock()
+	if repo == nil {
+		return fmt.Errorf("indexer settings are not available")
+	}
+	_, err := repo.Upsert(ctx, name, freeleechOnly)
+	return err
 }
 
 func (s *Service) ListIndexers() []Provider {
@@ -121,7 +193,7 @@ func (s *Service) SearchMovies(ctx context.Context, req SearchRequest) (MovieSea
 	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
 		trace.WithAttributes(attribute.Int("raw_items", len(items))))
 	movies := processMovieItems(pctx, items)
-	movies = filterAndSortMovies(movies, req.Quality)
+	movies = filterAndSortMovies(movies, req.Quality, s.buildFreeleechPolicy(ctx))
 	pspan.SetAttributes(attribute.Int("results", len(movies)))
 	pspan.End()
 	byIndexer := map[string]int{}
@@ -153,7 +225,7 @@ func (s *Service) SearchShows(ctx context.Context, req SearchRequest) (ShowSearc
 	pctx, pspan := tracer.Start(ctx, "indexer.process_results",
 		trace.WithAttributes(attribute.Int("raw_items", len(items))))
 	shows := processShowItems(pctx, items)
-	parsed, unparsed := filterAndSortShows(shows, req.Season, req.Episode, req.Quality)
+	parsed, unparsed := filterAndSortShows(shows, req.Season, req.Episode, req.Quality, s.buildFreeleechPolicy(ctx))
 	pspan.SetAttributes(attribute.Int("results", len(parsed)+len(unparsed)))
 	pspan.End()
 	all := append(append([]Show{}, parsed...), unparsed...)

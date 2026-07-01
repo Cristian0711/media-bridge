@@ -37,3 +37,16 @@ export type ShowSearchResponse = {
   available_qualities: string[];
   available_seasons: number[];
 };
+
+/** One configurable indexer in the admin panel. */
+export type IndexerSetting = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** When true, only freeleech torrents from this indexer are shown. */
+  freeleech_only: boolean;
+};
+
+export type IndexerSettingsResponse = {
+  indexers: IndexerSetting[];
+};

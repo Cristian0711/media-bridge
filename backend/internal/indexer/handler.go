@@ -28,6 +28,29 @@ func (h *Handler) ListIndexers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"indexers": out})
 }
 
+func (h *Handler) ListIndexerSettings(c *gin.Context) {
+	settings := h.svc.ListIndexerSettings(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{"indexers": settings})
+}
+
+type updateIndexerSettingRequest struct {
+	IndexerName   string `json:"indexer_name" binding:"required"`
+	FreeleechOnly bool   `json:"freeleech_only"`
+}
+
+func (h *Handler) UpdateIndexerSetting(c *gin.Context) {
+	var req updateIndexerSettingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if err := h.svc.UpdateIndexerSetting(c.Request.Context(), req.IndexerName, req.FreeleechOnly); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"indexer_name": req.IndexerName, "freeleech_only": req.FreeleechOnly})
+}
+
 func (h *Handler) SearchMovies(c *gin.Context) {
 	req, ok := bindSearchRequest(c, true)
 	if !ok {

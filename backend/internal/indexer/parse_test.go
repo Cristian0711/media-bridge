@@ -38,7 +38,7 @@ func TestFilterAndSortShows_SpecialsAreParsed(t *testing.T) {
 		{Name: "Special", Season: 0, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 1},
 		{Name: "Garbage", Season: 0, Parsed: false, Seeders: 5, Quality: "1080p", Freeleech: 1},
 	}
-	parsed, unparsed := filterAndSortShows(shows, 0, 0, "")
+	parsed, unparsed := filterAndSortShows(shows, 0, 0, "", freeleechPolicy{})
 	if len(parsed) != 1 || parsed[0].Name != "Special" {
 		t.Fatalf("expected S00 special in parsed bucket, got %+v", parsed)
 	}
@@ -47,50 +47,69 @@ func TestFilterAndSortShows_SpecialsAreParsed(t *testing.T) {
 	}
 }
 
-func TestFilterAndSortShows_DropsNonFreeleech(t *testing.T) {
+// default policy (empty) => every indexer is freeleech-only.
+func TestFilterAndSortShows_DefaultDropsNonFreeleech(t *testing.T) {
 	t.Parallel()
 	shows := []Show{
 		{Name: "Free", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 1, IndexerName: "TorrentLeech"},
 		{Name: "Paid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
 	}
-	parsed, _ := filterAndSortShows(shows, 0, 0, "")
+	parsed, _ := filterAndSortShows(shows, 0, 0, "", freeleechPolicy{})
 	if len(parsed) != 1 || parsed[0].Name != "Free" {
 		t.Fatalf("expected only freeleech show, got %+v", parsed)
 	}
 }
 
-func TestFilterAndSortShows_FileListExemptFromFreeleech(t *testing.T) {
+// an indexer configured freeleech_only=false keeps its non-freeleech results.
+func TestFilterAndSortShows_ConfiguredIndexerKeepsNonFreeleech(t *testing.T) {
 	t.Parallel()
+	policy := freeleechPolicy{byName: map[string]bool{"filelist.io": false}}
 	shows := []Show{
 		{Name: "FLPaid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "FileList.io"},
 		{Name: "TLPaid", Season: 1, Episode: 1, Parsed: true, Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
 	}
-	parsed, _ := filterAndSortShows(shows, 0, 0, "")
+	parsed, _ := filterAndSortShows(shows, 0, 0, "", policy)
 	if len(parsed) != 1 || parsed[0].Name != "FLPaid" {
-		t.Fatalf("expected non-freeleech FileList show kept, other dropped, got %+v", parsed)
+		t.Fatalf("expected non-freeleech configured-indexer show kept, other dropped, got %+v", parsed)
 	}
 }
 
-func TestFilterAndSortMovies_DropsNonFreeleech(t *testing.T) {
+func TestFilterAndSortMovies_DefaultDropsNonFreeleech(t *testing.T) {
 	t.Parallel()
 	movies := []Movie{
 		{Name: "Free", Seeders: 5, Quality: "1080p", Freeleech: 1, IndexerName: "TorrentLeech"},
 		{Name: "Paid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
 	}
-	filtered := filterAndSortMovies(movies, "")
+	filtered := filterAndSortMovies(movies, "", freeleechPolicy{})
 	if len(filtered) != 1 || filtered[0].Name != "Free" {
 		t.Fatalf("expected only freeleech movie, got %+v", filtered)
 	}
 }
 
-func TestFilterAndSortMovies_FileListExemptFromFreeleech(t *testing.T) {
+func TestFilterAndSortMovies_ConfiguredIndexerKeepsNonFreeleech(t *testing.T) {
 	t.Parallel()
+	policy := freeleechPolicy{byName: map[string]bool{"filelist.io": false}}
 	movies := []Movie{
 		{Name: "FLPaid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "FileList.io"},
 		{Name: "TLPaid", Seeders: 5, Quality: "1080p", Freeleech: 0, IndexerName: "TorrentLeech"},
 	}
-	filtered := filterAndSortMovies(movies, "")
+	filtered := filterAndSortMovies(movies, "", policy)
 	if len(filtered) != 1 || filtered[0].Name != "FLPaid" {
-		t.Fatalf("expected non-freeleech FileList movie kept, other dropped, got %+v", filtered)
+		t.Fatalf("expected non-freeleech configured-indexer movie kept, other dropped, got %+v", filtered)
+	}
+}
+
+func TestFreeleechPolicy_Default(t *testing.T) {
+	t.Parallel()
+	var p freeleechPolicy
+	if !p.freeleechOnly("Anything") {
+		t.Fatal("unconfigured indexer should default to freeleech-only")
+	}
+	p = freeleechPolicy{byName: map[string]bool{"filelist.io": false}}
+	if p.freeleechOnly("FileList.io") {
+		t.Fatal("configured indexer should honor freeleech_only=false (case-insensitive)")
+	}
+	if !p.freeleechOnly("TorrentLeech") {
+		t.Fatal("indexer absent from config should default to freeleech-only")
 	}
 }
