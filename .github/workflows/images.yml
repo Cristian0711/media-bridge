@@ -43,7 +43,7 @@ jobs:
             dockerfile: ./nginx/Dockerfile
             image: media-bridge-nginx
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
