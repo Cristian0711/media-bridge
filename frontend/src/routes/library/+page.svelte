@@ -4,6 +4,7 @@
   import { Input } from '$lib/components/ui/input';
   import MediaLibraryItemCard from '$lib/components/media/media-library-item.svelte';
   import MediaRowSkeleton from '$lib/components/media/media-row-skeleton.svelte';
+  import PullToRefresh from '$lib/components/ui/pull-to-refresh.svelte';
   import RemoveMediaDialog from '$lib/components/media/remove-media-dialog.svelte';
   import { getCached, isFresh } from '$lib/data/list-cache';
   import {
@@ -165,6 +166,7 @@
   });
 </script>
 
+<PullToRefresh onRefresh={() => list.reload({ force: true })}>
 <div class="-mx-6 flex flex-col">
   <div class="space-y-3 border-b border-border/30 px-3 pb-4 pt-5">
     <div class="grid grid-cols-2 gap-2 text-sm">
@@ -284,6 +286,7 @@
     {/if}
   </div>
 </div>
+</PullToRefresh>
 
 <RemoveMediaDialog
   open={deleteOpen}
