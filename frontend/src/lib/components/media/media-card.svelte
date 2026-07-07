@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Search, Download, Calendar, ExternalLink, CheckCircle2 } from 'lucide-svelte';
+  import { Search, Download, Calendar, ExternalLink, CheckCircle2, Share2 } from 'lucide-svelte';
   import { posterUrl } from '$lib/search/map';
   import { posterAtWidth, POSTER_THUMB_WIDTH } from '$lib/utils/poster-url';
+  import { canShare, share } from '$lib/utils/share';
   import type { MediaItem, MediaType } from '$lib/types/media';
 
   interface Props {
@@ -16,6 +18,20 @@
   let { item, mediaType, available = false, onSearch, onDownload }: Props = $props();
 
   const imageSrc = $derived(posterAtWidth(posterUrl(item.images.poster), POSTER_THUMB_WIDTH));
+
+  // Resolve share support after mount (navigator isn't there during prerender).
+  let shareSupported = $state(false);
+  onMount(() => {
+    shareSupported = canShare();
+  });
+
+  function onShare() {
+    void share({
+      title: item.title,
+      text: `${item.title}${item.year ? ` (${item.year})` : ''}`,
+      url: `${location.origin}/search?q=${encodeURIComponent(item.title)}`,
+    });
+  }
 </script>
 
 <div
@@ -75,6 +91,18 @@
         <Download class="mr-1 h-3 w-3" />
         Download
       </Button>
+      {#if shareSupported}
+        <Button
+          onclick={onShare}
+          size="sm"
+          variant="outline"
+          class="h-7 w-full px-2 text-xs"
+          aria-label="Share {item.title}"
+        >
+          <Share2 class="mr-1 h-3 w-3" />
+          Share
+        </Button>
+      {/if}
     </div>
   </div>
 </div>
