@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import MediaLibraryItemCard from '$lib/components/media/media-library-item.svelte';
+  import MediaRowSkeleton from '$lib/components/media/media-row-skeleton.svelte';
   import RemoveMediaDialog from '$lib/components/media/remove-media-dialog.svelte';
   import { getCached, isFresh } from '$lib/data/list-cache';
   import {
@@ -237,7 +238,7 @@
 
   <div class="min-h-[1px] px-3 py-3">
     {#if list.loading && list.items.length === 0}
-      <p class="py-12 text-center text-sm text-muted-foreground">Loading…</p>
+      <MediaRowSkeleton />
     {:else if list.items.length > 0}
       {#if submittedQuery}
         <p class="mb-3 text-xs text-muted-foreground">Results for “{submittedQuery}”</p>

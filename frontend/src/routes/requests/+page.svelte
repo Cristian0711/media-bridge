@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import RequestCard from '$lib/components/requests/request-card.svelte';
+  import MediaRowSkeleton from '$lib/components/media/media-row-skeleton.svelte';
   import { getCached, isFresh } from '$lib/data/list-cache';
   import {
     loadRequestsListCached,
@@ -91,7 +92,7 @@
 
   <div class="min-h-[1px] px-3 py-3">
     {#if list.loading && list.items.length === 0}
-      <p class="py-12 text-center text-sm text-muted-foreground">Loading…</p>
+      <MediaRowSkeleton />
     {:else if list.items.length > 0}
       {#each list.items as req, index (req.id)}
         <RequestCard request={req} {index} showUsername={$requestsView === 'all'} />

@@ -3,6 +3,7 @@
   import { Download, Search, CheckCircle2 } from 'lucide-svelte';
   import { posterUrl, toMediaItem } from '$lib/search/map';
   import { posterAtWidth, POSTER_CARD_WIDTH } from '$lib/utils/poster-url';
+  import BrowseRowSkeleton from './browse-row-skeleton.svelte';
   import type { MediaRow } from '$lib/media/media-action-host.svelte';
   import type { SearchResult } from '$lib/types/search';
 
@@ -26,7 +27,7 @@
   <h2 class="mb-2 px-1 text-sm font-semibold tracking-tight">{title}</h2>
 
   {#if loading}
-    <p class="px-1 text-xs text-muted-foreground">Loading…</p>
+    <BrowseRowSkeleton />
   {:else if error}
     <p class="px-1 text-xs text-red-400">{error}</p>
   {:else if rows.length === 0}

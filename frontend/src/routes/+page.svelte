@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BrowseListSection from '$lib/browse/browse-list-section.svelte';
+  import BrowseRowSkeleton from '$lib/browse/browse-row-skeleton.svelte';
   import ServiceStrip from '$lib/browse/service-strip.svelte';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import type { BrowseCatalog, BrowseListMeta, BrowseService } from '$lib/browse/api';
   import {
     applyBrowseCatalogToRowState,
@@ -153,14 +155,27 @@
   {/if}
 
   {#if servicesLoading && services.length === 0}
-    <p class="text-sm text-muted-foreground">Loading services…</p>
+    <div class="mb-4 flex gap-2 overflow-hidden">
+      {#each Array(5) as _, i (i)}
+        <Skeleton class="h-9 w-24 shrink-0 rounded-full" />
+      {/each}
+    </div>
+    {#each Array(2) as _, i (i)}
+      <section class="mb-6">
+        <Skeleton class="mb-2 ml-1 h-4 w-40" />
+        <BrowseRowSkeleton />
+      </section>
+    {/each}
   {:else if services.length > 0}
     <ServiceStrip {services} selectedId={selectedServiceId} onSelect={selectService} />
 
     {#if listsLoading && serviceLists.length === 0}
-      <p class="mb-4 text-sm text-muted-foreground">
-        Loading {services.find((s) => s.id === selectedServiceId)?.name ?? 'service'}…
-      </p>
+      {#each Array(2) as _, i (i)}
+        <section class="mb-6">
+          <Skeleton class="mb-2 ml-1 h-4 w-40" />
+          <BrowseRowSkeleton />
+        </section>
+      {/each}
     {:else}
       <BrowseListSection
         lists={serviceLists}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import MediaCard from '$lib/components/media/media-card.svelte';
+  import MediaRowSkeleton from '$lib/components/media/media-row-skeleton.svelte';
   import MediaActionHost, { type MediaRow } from '$lib/media/media-action-host.svelte';
   import { ApiError } from '$lib/api/client';
   import { searchMedia } from '$lib/search/api';
@@ -106,7 +107,9 @@
 {/if}
 
 {#if loading}
-  <p class="text-sm text-muted-foreground">Searching…</p>
+  <div class="-mx-1">
+    <MediaRowSkeleton count={6} />
+  </div>
 {:else if error}
   <p class="text-sm text-red-400">{error}</p>
 {:else if !page.url.searchParams.get('q')?.trim()}
