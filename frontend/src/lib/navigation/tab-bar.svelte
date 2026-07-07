@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { cn } from '$lib/utils';
+  import { haptic } from '$lib/utils/haptics';
   import LiquidTabTrack from './liquid-tab-track.svelte';
   import { TABS, tabFromPath, type TabId } from './tabs';
 
@@ -17,7 +18,9 @@
 
   function commitTab(index: number) {
     const tab = TABS[index];
-    if (tab) goto(tab.href);
+    if (!tab) return;
+    haptic();
+    goto(tab.href);
   }
 </script>
 
