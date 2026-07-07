@@ -14,6 +14,7 @@
   import { sseConnectionStatus } from '$lib/sse/connection-status';
   import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
   import ToastHost from '$lib/toast/toast-host.svelte';
+  import { initInstallPrompt } from '$lib/pwa/install';
   import { get } from 'svelte/store';
 
   let { children } = $props();
@@ -38,6 +39,7 @@
 
   onMount(() => {
     syncTokenFromCookie();
+    initInstallPrompt();
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
