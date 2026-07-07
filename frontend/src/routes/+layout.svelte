@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto, onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import { browser } from '$app/environment';
   import AppHeader from '$lib/components/app-header.svelte';
@@ -14,9 +14,24 @@
   import { sseConnectionStatus } from '$lib/sse/connection-status';
   import { syncListsAfterSseReconnect } from '$lib/sse/reconnect-sync';
   import ToastHost from '$lib/toast/toast-host.svelte';
+  import { initInstallPrompt } from '$lib/pwa/install';
   import { get } from 'svelte/store';
 
   let { children } = $props();
+
+  // Cross-fade between routes via the View Transitions API. Progressive: browsers
+  // without support (and users who prefer reduced motion — see app.css) just
+  // hard-cut. The animation itself lives in app.css under ::view-transition-*.
+  onNavigate((navigation) => {
+    if (!document.startViewTransition) return;
+
+    return new Promise((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await navigation.complete;
+      });
+    });
+  });
 
   const publicPaths = ['/login', '/register'];
 
@@ -24,6 +39,7 @@
 
   onMount(() => {
     syncTokenFromCookie();
+    initInstallPrompt();
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true;

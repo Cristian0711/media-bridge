@@ -56,6 +56,15 @@
     -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
 
+  /* App chrome shouldn't behave like selectable content: block long-press text
+     selection and the iOS callout so headers/tab bar read as native controls. */
+  .app-header,
+  .bottom-chrome {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
   .app-header-inner {
     display: flex;
     height: 3rem;
@@ -175,5 +184,68 @@
     .liquid-tab-bubble {
       display: none;
     }
+  }
+}
+
+/* Route cross-fade driven by onNavigate() in +layout.svelte. The browser applies
+   a default fade; we just tighten the timing and honour reduced-motion. These
+   pseudo-elements are document-global, so they live outside @layer base. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* Dialog / bottom-sheet entrance. Overlay fades; the panel slides up from the
+   bottom edge on touch (bottom sheet) and scales in on fine pointers. */
+@media (prefers-reduced-motion: no-preference) {
+  .dialog-overlay {
+    animation: dialog-fade 150ms ease-out;
+  }
+
+  .dialog-panel {
+    animation: dialog-scale 160ms ease-out;
+  }
+
+  @media (pointer: coarse) {
+    .dialog-panel {
+      animation: dialog-slide-up 240ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+  }
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dialog-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
   }
 }
