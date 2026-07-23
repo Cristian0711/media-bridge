@@ -71,8 +71,10 @@
   const springBulge = createSpring(0);
 
   // --- Imperative (non-reactive) state read inside the rAF loop ---
+  // (set from activeId in onMount / targetTab — not initialized from the prop
+  // directly, which would only capture its first value.)
   let initialized = false;
-  let visualTarget = activeId;
+  let visualTarget = '';
   let navWidth = 0;
 
   interface DragState {
@@ -235,6 +237,7 @@
       return;
     }
     const motion = createMotionTracker(container);
+    visualTarget = activeId;
 
     let lastTime = performance.now();
     let frame: number;
