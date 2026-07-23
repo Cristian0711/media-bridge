@@ -196,6 +196,27 @@
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* The header and bottom bar persist across routes, so lift them out of the page
+   cross-fade into their own transition groups and freeze those — otherwise the
+   fixed chrome gets captured in the root snapshot and flickers / double-exposes
+   while the content fades underneath it. */
+.app-header {
+  view-transition-name: app-header;
+}
+
+.bottom-chrome {
+  view-transition-name: bottom-chrome;
+}
+
+::view-transition-group(app-header),
+::view-transition-group(bottom-chrome),
+::view-transition-old(app-header),
+::view-transition-new(app-header),
+::view-transition-old(bottom-chrome),
+::view-transition-new(bottom-chrome) {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
