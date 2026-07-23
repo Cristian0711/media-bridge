@@ -20,6 +20,8 @@
     unparsed?: boolean;
     /** Distinct indexers carrying this release; a badge shows when > 1. */
     crossSeedCount?: number;
+    /** Names of those indexers, listed under the cross-seed badge. */
+    crossSeedIndexers?: string[];
     /** Extra badges rendered between the quality and category badges. */
     extraBadges?: Snippet;
   }
@@ -37,6 +39,7 @@
     onDownload,
     unparsed = false,
     crossSeedCount = 1,
+    crossSeedIndexers = [],
     extraBadges,
   }: Props = $props();
 </script>
@@ -66,7 +69,9 @@
     {#if freeleech === 1}
       <Badge variant="default" class="bg-green-600">Freeleech</Badge>
     {/if}
-    {#if crossSeedCount > 1}
+  </div>
+  {#if crossSeedCount > 1}
+    <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
       <Badge
         variant="default"
         class="bg-sky-600"
@@ -74,8 +79,13 @@
       >
         <Layers class="mr-1 h-3 w-3" />Cross-seed ×{crossSeedCount}
       </Badge>
-    {/if}
-  </div>
+      {#if crossSeedIndexers.length > 0}
+        <span class="min-w-0 break-words text-[0.65rem] text-muted-foreground">
+          {crossSeedIndexers.join(' · ')}
+        </span>
+      {/if}
+    </div>
+  {/if}
   <div class="flex flex-wrap gap-3 text-[0.65rem] text-muted-foreground">
     <span class="inline-flex items-center gap-1"><HardDrive class="h-3 w-3" />{formatGbFixed(size)}</span>
     <span class="inline-flex items-center gap-1 text-green-500"><ArrowDownToLine class="h-3 w-3" />{seeders}</span>

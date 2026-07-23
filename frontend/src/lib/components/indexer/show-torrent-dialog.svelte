@@ -219,6 +219,7 @@
               seeders={show.seeders}
               leechers={show.leechers}
               crossSeedCount={show.cross_seed_count}
+              crossSeedIndexers={show.cross_seed_indexers}
               {downloading}
               onDownload={() => handleDownload(show)}
             >
@@ -242,6 +243,7 @@
               seeders={show.seeders}
               leechers={show.leechers}
               crossSeedCount={show.cross_seed_count}
+              crossSeedIndexers={show.cross_seed_indexers}
               {downloading}
               unparsed
               onDownload={() => handleDownload(show, true)}
