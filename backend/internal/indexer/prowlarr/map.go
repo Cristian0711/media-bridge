@@ -18,12 +18,19 @@ const (
 func ToIndexerItems(releases []Release, imdbFallback string, tvOnly bool) []idx.IndexerItem {
 	out := make([]idx.IndexerItem, 0, len(releases))
 	for _, r := range releases {
-		if tvOnly {
-			if !isTVRelease(r) {
+		// Prowlarr already scoped the query by type (movie vs tvsearch), so the
+		// category check is only a guard against an indexer returning the wrong
+		// type. Some indexers (e.g. FileList via Prowlarr) return an empty
+		// category list; those can't be classified, so trust the search type and
+		// keep them rather than silently dropping the whole indexer's results.
+		if len(r.Categories) > 0 {
+			if tvOnly {
+				if !isTVRelease(r) {
+					continue
+				}
+			} else if !isMovieRelease(r) {
 				continue
 			}
-		} else if !isMovieRelease(r) {
-			continue
 		}
 		out = append(out, releaseToItem(r, imdbFallback))
 	}

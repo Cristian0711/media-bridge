@@ -137,6 +137,30 @@ func TestToIndexerItemsFiltersByKind(t *testing.T) {
 	}
 }
 
+func TestToIndexerItemsKeepsUncategorizedReleases(t *testing.T) {
+	t.Parallel()
+	// FileList via Prowlarr returns releases with an empty category list. Since
+	// Prowlarr already scoped the query by type, these must survive the filter
+	// (they were being dropped entirely before).
+	noCat := prowlarr.Release{
+		GUID:       "FileList-820692",
+		Title:      "Memento 2000 1080p JPN Blu-ray",
+		IMDBID:     209144,
+		Categories: nil,
+		Indexer:    "FileList.io",
+	}
+
+	movies := prowlarr.ToIndexerItems([]prowlarr.Release{noCat}, "", false)
+	if len(movies) != 1 || movies[0].IndexerName != "FileList.io" {
+		t.Fatalf("uncategorized movie search = %+v, want the FileList release kept", movies)
+	}
+
+	shows := prowlarr.ToIndexerItems([]prowlarr.Release{noCat}, "", true)
+	if len(shows) != 1 {
+		t.Fatalf("uncategorized tv search = %+v, want the release kept", shows)
+	}
+}
+
 func TestToIndexerItemsUsesIMDBFallback(t *testing.T) {
 	t.Parallel()
 	r := prowlarr.Release{
