@@ -9,7 +9,6 @@
     name: string;
     indexerName: string;
     quality: string;
-    category: string;
     freeleech: number;
     size: number;
     seeders: number;
@@ -22,7 +21,7 @@
     crossSeedCount?: number;
     /** Names of those indexers, listed under the cross-seed badge. */
     crossSeedIndexers?: string[];
-    /** Extra badges rendered between the quality and category badges. */
+    /** Extra badges rendered after the quality badge. */
     extraBadges?: Snippet;
   }
 
@@ -30,7 +29,6 @@
     name,
     indexerName,
     quality,
-    category,
     freeleech,
     size,
     seeders,
@@ -65,7 +63,6 @@
     <Badge variant="outline">{indexerName}</Badge>
     <Badge variant="secondary">{quality}</Badge>
     {#if extraBadges}{@render extraBadges()}{/if}
-    <Badge variant="outline">{category}</Badge>
     {#if freeleech === 1}
       <Badge variant="default" class="bg-green-600">Freeleech</Badge>
     {/if}

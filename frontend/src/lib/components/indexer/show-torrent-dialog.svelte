@@ -213,7 +213,6 @@
               name={show.name}
               indexerName={show.indexer_name}
               quality={show.quality}
-              category={show.category}
               freeleech={show.freeleech}
               size={show.size}
               seeders={show.seeders}
@@ -237,7 +236,6 @@
               name={show.name}
               indexerName={show.indexer_name}
               quality={show.quality}
-              category={show.category}
               freeleech={show.freeleech}
               size={show.size}
               seeders={show.seeders}

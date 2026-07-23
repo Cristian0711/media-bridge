@@ -140,7 +140,6 @@
               name={movie.name}
               indexerName={movie.indexer_name}
               quality={movie.quality}
-              category={movie.category}
               freeleech={movie.freeleech}
               size={movie.size}
               seeders={movie.seeders}
