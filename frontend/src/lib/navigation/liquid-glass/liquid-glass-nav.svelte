@@ -4,17 +4,11 @@
   // The WebGL engine (renderer/shaders/spring/motion) is reused verbatim; this
   // file replaces the React component shell. Positioning is left to the parent
   // (no fixed positioning) so it drops into the app's bottom chrome.
-  import { onMount, type Component } from 'svelte';
+  import { onMount } from 'svelte';
   import { LiquidGlassRenderer } from './renderer';
   import { createSpring, updateSpring } from './spring';
   import { createMotionTracker } from './motion';
-
-  export interface NavItem {
-    id: string;
-    label: string;
-    // Lucide-svelte icon component (or any Svelte component taking size/class).
-    icon?: Component<any>;
-  }
+  import type { NavItem } from './types';
 
   interface Props {
     items: NavItem[];

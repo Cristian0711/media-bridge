@@ -2,6 +2,15 @@
 // Copyright (c) 2026 Clay Harmon — MIT License. React-facing types removed;
 // only the engine types are kept (the Svelte component defines its own props).
 
+import type { Component } from 'svelte';
+
+export interface NavItem {
+  id: string;
+  label: string;
+  // Lucide-svelte icon component (or any Svelte component taking size/class).
+  icon?: Component<any>;
+}
+
 export interface SpringState {
   current: number;
   target: number;

@@ -2,7 +2,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { haptic } from '$lib/utils/haptics';
-  import LiquidGlassNav, { type NavItem } from './liquid-glass/liquid-glass-nav.svelte';
+  import LiquidGlassNav from './liquid-glass/liquid-glass-nav.svelte';
+  import type { NavItem } from './liquid-glass/types';
   import { TABS, tabFromPath } from './tabs';
 
   const active = $derived(tabFromPath(page.url.pathname));
