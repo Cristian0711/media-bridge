@@ -143,6 +143,29 @@ func TestCrossSeed_DistinctIndexersOnly(t *testing.T) {
 			t.Fatalf("expected distinct-indexer count 2 for %q, got %d", m.Name, m.CrossSeedCount)
 		}
 	}
+	// The two TorrentLeech rows collapse to one name; the list is sorted and
+	// carries the distinct indexers (not one entry per matching row).
+	want := []string{"Blutopia (API)", "TorrentLeech (IMDb)"}
+	for _, m := range movies {
+		if len(m.CrossSeedIndexers) != 2 || m.CrossSeedIndexers[0] != want[0] || m.CrossSeedIndexers[1] != want[1] {
+			t.Fatalf("expected cross-seed indexers %v for %q, got %v", want, m.Name, m.CrossSeedIndexers)
+		}
+	}
+}
+
+// A release found on a single indexer gets no cross-seed list.
+func TestCrossSeed_SingleIndexerHasNoList(t *testing.T) {
+	t.Parallel()
+	movies := []Movie{
+		{Name: "Memento 2000 1080p BluRay x264-EbP", Size: 10 * gib, IndexerName: "TorrentLeech (IMDb)"},
+		{Name: "Some Other Cut 2000 720p WEB-DL-XYZ", Size: 2 * gib, IndexerName: "Blutopia (API)"},
+	}
+	annotateMovieCrossSeed(movies)
+	for _, m := range movies {
+		if m.CrossSeedCount != 1 || m.CrossSeedIndexers != nil {
+			t.Fatalf("expected count 1 and nil list for %q, got %d / %v", m.Name, m.CrossSeedCount, m.CrossSeedIndexers)
+		}
+	}
 }
 
 // Different seasons of the same group/size must not merge.

@@ -40,6 +40,9 @@ type Movie struct {
 	// computed over all raw results before freeleech filtering. >1 means the
 	// release is cross-seedable.
 	CrossSeedCount int `json:"cross_seed_count"`
+	// CrossSeedIndexers lists those distinct indexer names (sorted), populated
+	// only when the release is cross-seedable (CrossSeedCount > 1).
+	CrossSeedIndexers []string `json:"cross_seed_indexers,omitempty"`
 }
 
 type Show struct {
@@ -63,4 +66,7 @@ type Show struct {
 	// computed over all raw results before freeleech filtering. >1 means the
 	// release is cross-seedable.
 	CrossSeedCount int `json:"cross_seed_count"`
+	// CrossSeedIndexers lists those distinct indexer names (sorted), populated
+	// only when the release is cross-seedable (CrossSeedCount > 1).
+	CrossSeedIndexers []string `json:"cross_seed_indexers,omitempty"`
 }
