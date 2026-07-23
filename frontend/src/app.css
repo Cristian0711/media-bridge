@@ -197,9 +197,10 @@
 }
 
 /* The header and bottom bar persist across routes, so lift them out of the page
-   cross-fade into their own transition groups and freeze those — otherwise the
-   fixed chrome gets captured in the root snapshot and flickers / double-exposes
-   while the content fades underneath it. */
+   cross-fade into their own transition groups. Freeze those: no morph, show only
+   the new (live) state, and HIDE the stale snapshot. Without the opacity:0 the
+   old snapshot keeps its default opacity of 1 and lingers for the whole
+   transition — that is what showed as a second, doubled bottom bar. */
 .app-header {
   view-transition-name: app-header;
 }
@@ -210,11 +211,15 @@
 
 ::view-transition-group(app-header),
 ::view-transition-group(bottom-chrome),
-::view-transition-old(app-header),
 ::view-transition-new(app-header),
-::view-transition-old(bottom-chrome),
 ::view-transition-new(bottom-chrome) {
   animation: none;
+}
+
+::view-transition-old(app-header),
+::view-transition-old(bottom-chrome) {
+  animation: none;
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
