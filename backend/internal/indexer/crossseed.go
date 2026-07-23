@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -157,21 +158,50 @@ func sameRelease(nameA string, sizeA int64, nameB string, sizeB int64) bool {
 
 func normIndexer(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-// annotateMovieCrossSeed sets CrossSeedCount on every movie to the number of
-// distinct indexers carrying a matching release. Call on the full result set
-// before freeleech filtering so the count reflects every indexer.
+// addIndexer records an indexer in the cross-seed set, keyed by its normalized
+// name so case/whitespace variants collapse, keeping the first display form.
+func addIndexer(seen map[string]string, name string) {
+	key := normIndexer(name)
+	if key == "" {
+		return
+	}
+	if _, ok := seen[key]; !ok {
+		seen[key] = strings.TrimSpace(name)
+	}
+}
+
+// crossSeedResult turns the collected indexer set into the count + sorted display
+// list. The list is only meaningful (non-nil) when more than one indexer carries
+// the release; a single-indexer release gets count 1 and a nil list.
+func crossSeedResult(seen map[string]string) (int, []string) {
+	count := len(seen)
+	if count <= 1 {
+		return count, nil
+	}
+	names := make([]string, 0, count)
+	for _, display := range seen {
+		names = append(names, display)
+	}
+	sort.Strings(names)
+	return count, names
+}
+
+// annotateMovieCrossSeed sets CrossSeedCount (and CrossSeedIndexers) on every
+// movie from the distinct indexers carrying a matching release. Call on the full
+// result set before freeleech filtering so the count reflects every indexer.
 func annotateMovieCrossSeed(movies []Movie) {
 	for i := range movies {
-		seen := map[string]struct{}{normIndexer(movies[i].IndexerName): {}}
+		seen := map[string]string{}
+		addIndexer(seen, movies[i].IndexerName)
 		for j := range movies {
 			if i == j {
 				continue
 			}
 			if sameRelease(movies[i].Name, movies[i].Size, movies[j].Name, movies[j].Size) {
-				seen[normIndexer(movies[j].IndexerName)] = struct{}{}
+				addIndexer(seen, movies[j].IndexerName)
 			}
 		}
-		movies[i].CrossSeedCount = len(seen)
+		movies[i].CrossSeedCount, movies[i].CrossSeedIndexers = crossSeedResult(seen)
 	}
 }
 
@@ -179,7 +209,8 @@ func annotateMovieCrossSeed(movies []Movie) {
 // share the parsed season and episode to be considered the same release.
 func annotateShowCrossSeed(shows []Show) {
 	for i := range shows {
-		seen := map[string]struct{}{normIndexer(shows[i].IndexerName): {}}
+		seen := map[string]string{}
+		addIndexer(seen, shows[i].IndexerName)
 		for j := range shows {
 			if i == j {
 				continue
@@ -187,9 +218,9 @@ func annotateShowCrossSeed(shows []Show) {
 			if shows[i].Season == shows[j].Season &&
 				shows[i].Episode == shows[j].Episode &&
 				sameRelease(shows[i].Name, shows[i].Size, shows[j].Name, shows[j].Size) {
-				seen[normIndexer(shows[j].IndexerName)] = struct{}{}
+				addIndexer(seen, shows[j].IndexerName)
 			}
 		}
-		shows[i].CrossSeedCount = len(seen)
+		shows[i].CrossSeedCount, shows[i].CrossSeedIndexers = crossSeedResult(seen)
 	}
 }

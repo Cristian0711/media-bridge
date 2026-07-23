@@ -213,12 +213,12 @@
               name={show.name}
               indexerName={show.indexer_name}
               quality={show.quality}
-              category={show.category}
               freeleech={show.freeleech}
               size={show.size}
               seeders={show.seeders}
               leechers={show.leechers}
               crossSeedCount={show.cross_seed_count}
+              crossSeedIndexers={show.cross_seed_indexers}
               {downloading}
               onDownload={() => handleDownload(show)}
             >
@@ -236,12 +236,12 @@
               name={show.name}
               indexerName={show.indexer_name}
               quality={show.quality}
-              category={show.category}
               freeleech={show.freeleech}
               size={show.size}
               seeders={show.seeders}
               leechers={show.leechers}
               crossSeedCount={show.cross_seed_count}
+              crossSeedIndexers={show.cross_seed_indexers}
               {downloading}
               unparsed
               onDownload={() => handleDownload(show, true)}
