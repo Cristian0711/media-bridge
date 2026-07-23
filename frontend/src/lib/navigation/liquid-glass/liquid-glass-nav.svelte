@@ -30,12 +30,12 @@
     class: className,
   }: Props = $props();
 
-  const NAV_HEIGHT = 56;
-  const NAV_RADIUS = 28;
-  const PILL_HEIGHT = 44;
+  const NAV_HEIGHT = 64;
+  const NAV_RADIUS = 32;
+  const PILL_HEIGHT = 52;
   const DRAG_THRESHOLD = 4;
   const VEL_SMOOTHING = 0.25;
-  const ICON_SIZE = 24;
+  const ICON_SIZE = 26;
 
   // --- Color parsing (any CSS color -> normalized rgb) ---
   let parseCtx: CanvasRenderingContext2D | null = null;
@@ -396,14 +396,14 @@
     position: relative;
     display: flex;
     align-items: center;
-    padding: 0 8px;
+    padding: 0 10px;
     overflow: visible;
     backdrop-filter: blur(40px) saturate(170%);
     -webkit-backdrop-filter: blur(40px) saturate(170%);
-    background: rgb(255 255 255 / 0.14);
+    background: rgb(255 255 255 / 0.22);
     box-shadow:
-      0 8px 32px rgb(0 0 0 / 0.18),
-      inset 0 0 0 0.5px rgb(255 255 255 / 0.2);
+      0 8px 32px rgb(0 0 0 / 0.22),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.28);
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
@@ -443,7 +443,7 @@
     align-items: center;
     justify-content: center;
     gap: 2px;
-    padding: 6px 18px;
+    padding: 8px 20px;
     border: none;
     background: none;
     font-size: 10px;
