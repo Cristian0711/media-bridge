@@ -398,12 +398,14 @@
     align-items: center;
     padding: 0 10px;
     overflow: visible;
-    backdrop-filter: blur(40px) saturate(170%);
-    -webkit-backdrop-filter: blur(40px) saturate(170%);
-    background: rgb(255 255 255 / 0.22);
+    /* Frosted glass: strong blur + saturation so content scrolling behind the
+       bar reads as a blurred frost, with a heavier tint so it's less see-through. */
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    background: rgb(255 255 255 / 0.3);
     box-shadow:
-      0 8px 32px rgb(0 0 0 / 0.22),
-      inset 0 0 0 0.5px rgb(255 255 255 / 0.28);
+      0 8px 32px rgb(0 0 0 / 0.25),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.3);
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
